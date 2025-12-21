@@ -27,18 +27,22 @@ public class VehicleMovementNetcodeNew : NetworkBehaviour
     private Rigidbody _rb;
     private IMovementModelNew _model;
 
+    // Server input queue keyed by server tick
     private readonly Dictionary<int, VehicleInputNew> _pendingServerInputs = new();
     private VehicleInputNew _lastServerInput;
 
+    // Owner prediction buffers (server tick domain)
     private VehicleInputNew[] _inputBuffer;
     private VehicleSimStateNew[] _stateBuffer;
     private VehicleSimStateNew _predictedVisualState;
 
+    // Visual smoothing targets (non-owner)
     private Vector3 _visualTargetPos;
     private Quaternion _visualTargetRot;
 
     private bool _tickHooked;
 
+    // Debug
     public VehicleInputNew Debug_LastLocalInput { get; private set; }
     public VehicleInputNew Debug_LastServerAppliedInput { get; private set; }
     public float Debug_LastPosError { get; private set; }
@@ -54,6 +58,15 @@ public class VehicleMovementNetcodeNew : NetworkBehaviour
         }
     }
 
+    // -------------------------
+    // Phase 6/Step 2: Yaw-only clamp helper
+    // -------------------------
+    private static Quaternion YawOnly(Quaternion q)
+    {
+        Vector3 e = q.eulerAngles;
+        return Quaternion.Euler(0f, e.y, 0f);
+    }
+
     private void Awake()
     {
         _rb = GetComponent<Rigidbody>();
@@ -64,8 +77,9 @@ public class VehicleMovementNetcodeNew : NetworkBehaviour
             visualRoot = found != null ? found : transform;
         }
 
+        // Initialize visual targets from current pose (yaw-only)
         _visualTargetPos = visualRoot.position;
-        _visualTargetRot = visualRoot.rotation;
+        _visualTargetRot = YawOnly(visualRoot.rotation);
     }
 
     public override void OnNetworkSpawn()
@@ -82,18 +96,20 @@ public class VehicleMovementNetcodeNew : NetworkBehaviour
         _inputBuffer = new VehicleInputNew[bufferSize];
         _stateBuffer = new VehicleSimStateNew[bufferSize];
 
+        // Physics authority: only server simulates RB
         _rb.isKinematic = !IsServer;
 
+        // Start predicted visual state from current pose (yaw-only)
         _predictedVisualState = new VehicleSimStateNew
         {
             Position = visualRoot.position,
-            Rotation = visualRoot.rotation,
+            Rotation = YawOnly(visualRoot.rotation),
             Velocity = Vector3.zero,
             YawDegPerSec = 0f
         };
 
         _visualTargetPos = visualRoot.position;
-        _visualTargetRot = visualRoot.rotation;
+        _visualTargetRot = YawOnly(visualRoot.rotation);
 
         if (!_tickHooked && NetworkManager != null)
         {
@@ -103,7 +119,6 @@ public class VehicleMovementNetcodeNew : NetworkBehaviour
     }
 
     public override void OnNetworkDespawn() => UnhookTick();
-
     private void OnDestroy() => UnhookTick();
 
     private void UnhookTick()
@@ -118,6 +133,7 @@ public class VehicleMovementNetcodeNew : NetworkBehaviour
         if (visualRoot == null) return;
         if (!IsSpawned) return;
 
+        // Non-owner: smooth VISUAL towards snapshot targets (yaw-only)
         if (!IsOwner)
         {
             float t = 1f - Mathf.Exp(-remoteVisualLerpSpeed * Time.deltaTime);
@@ -126,8 +142,9 @@ public class VehicleMovementNetcodeNew : NetworkBehaviour
         }
         else if (IsServer)
         {
+            // Host owner: visual follows root exactly (yaw-only)
             visualRoot.position = transform.position;
-            visualRoot.rotation = transform.rotation;
+            visualRoot.rotation = YawOnly(transform.rotation);
         }
     }
 
@@ -141,7 +158,7 @@ public class VehicleMovementNetcodeNew : NetworkBehaviour
 
         int serverTick = nm.NetworkTickSystem.ServerTime.Tick;
 
-        // Host: read input locally, feed server sim
+        // HOST: read input locally, feed server sim
         if (IsServer && IsOwner)
         {
             VehicleInputNew hostCmd = GatherInput(serverTick);
@@ -153,9 +170,11 @@ public class VehicleMovementNetcodeNew : NetworkBehaviour
             return;
         }
 
+        // Owner client: predict VISUAL and send input
         if (IsOwner)
             OwnerPredictVisualTick(serverTick);
 
+        // Dedicated server: sim + broadcast
         if (IsServer)
         {
             ServerSimTick(serverTick);
@@ -163,6 +182,9 @@ public class VehicleMovementNetcodeNew : NetworkBehaviour
         }
     }
 
+    // -------------------------
+    // Owner prediction (visual only)
+    // -------------------------
     private void OwnerPredictVisualTick(int serverTick)
     {
         if (visualRoot == null) return;
@@ -173,9 +195,13 @@ public class VehicleMovementNetcodeNew : NetworkBehaviour
         int idx = Mod(serverTick, bufferSize);
         _inputBuffer[idx] = cmd;
 
+        // Predict forward (ensure yaw-only)
         _predictedVisualState = _model.Step(_predictedVisualState, cmd, DtPerTick);
+        _predictedVisualState.Rotation = YawOnly(_predictedVisualState.Rotation);
+
         _stateBuffer[idx] = _predictedVisualState;
 
+        // Apply to VISUAL only (yaw-only)
         visualRoot.SetPositionAndRotation(_predictedVisualState.Position, _predictedVisualState.Rotation);
 
         SubmitInputServerRpc(cmd);
@@ -211,6 +237,9 @@ public class VehicleMovementNetcodeNew : NetworkBehaviour
         _pendingServerInputs[cmd.Tick] = cmd;
     }
 
+    // -------------------------
+    // Server authoritative simulation
+    // -------------------------
     private void ServerSimTick(int serverTick)
     {
         // Tolerate late packets: exact tick else latest <= tick
@@ -242,27 +271,35 @@ public class VehicleMovementNetcodeNew : NetworkBehaviour
 
         Debug_LastServerAppliedInput = _lastServerInput;
 
+        // Read current RB state
         VehicleSimStateNew s = new VehicleSimStateNew
         {
             Position = _rb.position,
-            Rotation = _rb.rotation,
+            Rotation = YawOnly(_rb.rotation), // enforce yaw-only seed
             Velocity = _rb.linearVelocity,
             YawDegPerSec = _rb.angularVelocity.y * Mathf.Rad2Deg
         };
 
+        // Step sim and enforce yaw-only
         VehicleSimStateNew stepped = _model.Step(s, _lastServerInput, DtPerTick);
+        stepped.Rotation = YawOnly(stepped.Rotation);
 
+        // Apply to RB
         _rb.linearVelocity = stepped.Velocity;
+
         float yawRadPerSec = stepped.YawDegPerSec * Mathf.Deg2Rad;
         _rb.angularVelocity = new Vector3(0f, yawRadPerSec, 0f);
     }
 
+    // -------------------------
+    // Snapshot broadcast + reconcile
+    // -------------------------
     private void BroadcastSnapshot(int serverTick)
     {
         VehicleSimStateNew s = new VehicleSimStateNew
         {
             Position = _rb.position,
-            Rotation = _rb.rotation,
+            Rotation = YawOnly(_rb.rotation),   // Step 2: snapshot yaw-only
             Velocity = _rb.linearVelocity,
             YawDegPerSec = _rb.angularVelocity.y * Mathf.Rad2Deg
         };
@@ -277,59 +314,71 @@ public class VehicleMovementNetcodeNew : NetworkBehaviour
         if (!IsSpawned) return;
         if (visualRoot == null) return;
 
-        // Root snaps to server truth on clients only
-        if (!IsServer)
-            transform.SetPositionAndRotation(snap.Position, snap.Rotation);
+        // Step 2: always treat snapshot rotation as yaw-only
+        Quaternion snapYaw = YawOnly(snap.Rotation);
 
+        // Root snaps to server truth on clients only (never override server RB)
+        if (!IsServer)
+        {
+            transform.SetPositionAndRotation(snap.Position, snapYaw);
+        }
+
+        // Non-owner: smooth visual towards server targets (yaw-only)
         if (!IsOwner)
         {
             _visualTargetPos = snap.Position;
-            _visualTargetRot = snap.Rotation;
+            _visualTargetRot = snapYaw;
             return;
         }
 
+        // Owner reconcile
         int idx = Mod(snap.Tick, bufferSize);
         VehicleSimStateNew predictedAtTick = _stateBuffer[idx];
 
         float posErr = Vector3.Distance(predictedAtTick.Position, snap.Position);
-        float rotErr = Quaternion.Angle(predictedAtTick.Rotation, snap.Rotation);
+        float rotErr = Quaternion.Angle(YawOnly(predictedAtTick.Rotation), snapYaw);
 
         Debug_LastPosError = posErr;
         Debug_LastRotErrorDeg = rotErr;
 
         if (posErr < reconcilePosThreshold && rotErr < reconcileRotThresholdDeg)
         {
+            // Keep seed close to server
             _predictedVisualState.Position = snap.Position;
-            _predictedVisualState.Rotation = snap.Rotation;
+            _predictedVisualState.Rotation = snapYaw;
             return;
         }
 
-        // ---- CRITICAL FIX: cap replay work to prevent stalls/hangs ----
+        // Hard reset to server truth
+        _predictedVisualState = snap.ToSimState();
+        _predictedVisualState.Rotation = snapYaw;
+
+        // ---- Replay cap (stall protection) ----
         int currentServerTick = NetworkManager.NetworkTickSystem.ServerTime.Tick;
         int delta = currentServerTick - snap.Tick;
 
-        // If delta is weird (negative or huge), don't replay; just reset to server state.
+        // If delta is weird, don't replay
         if (delta <= 0 || delta > bufferSize - 1)
         {
-            _predictedVisualState = snap.ToSimState();
             visualRoot.SetPositionAndRotation(_predictedVisualState.Position, _predictedVisualState.Rotation);
             return;
         }
 
         int replayCount = Mathf.Min(delta, maxReplayTicks);
 
-        _predictedVisualState = snap.ToSimState();
-
-        // Replay only the last 'replayCount' ticks
         int startTick = currentServerTick - replayCount + 1;
         for (int t = startTick; t <= currentServerTick; t++)
         {
             int bi = Mod(t, bufferSize);
             VehicleInputNew cmd = _inputBuffer[bi];
+
             _predictedVisualState = _model.Step(_predictedVisualState, cmd, DtPerTick);
+            _predictedVisualState.Rotation = YawOnly(_predictedVisualState.Rotation);
+
             _stateBuffer[bi] = _predictedVisualState;
         }
 
+        // Apply to visual (yaw-only)
         visualRoot.SetPositionAndRotation(_predictedVisualState.Position, _predictedVisualState.Rotation);
     }
 
