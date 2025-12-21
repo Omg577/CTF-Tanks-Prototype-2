@@ -158,6 +158,8 @@ GameObject:
   - component: {fileID: 3178835502326923086}
   - component: {fileID: 4677055890733791716}
   - component: {fileID: -7301793401019658691}
+  - component: {fileID: 7648703138070452198}
+  - component: {fileID: 3547409904604197405}
   m_Layer: 0
   m_Name: TankVehicleNew
   m_TagString: Untagged
@@ -179,6 +181,7 @@ Transform:
   m_ConstrainProportionsScale: 0
   m_Children:
   - {fileID: 3782322215262431501}
+  - {fileID: 9110670525284410481}
   m_Father: {fileID: 0}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
 --- !u!54 &2543270986997536303
@@ -288,3 +291,75 @@ MonoBehaviour:
   m_EditorClassIdentifier: Assembly-CSharp::VehicleDebugHUDNew
   ShowTopMostFoldoutHeaderGroup: 1
   show: 1
+--- !u!114 &7648703138070452198
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 4166674769762666795}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 26326d91a835b4049a84a563bbd431cf, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::TeamComponentNew
+  ShowTopMostFoldoutHeaderGroup: 1
+  team: 1
+--- !u!114 &3547409904604197405
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 4166674769762666795}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 1da27691f50dfa74896f3a9ca72d0773, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::PayloadDropTesterNew
+  ShowTopMostFoldoutHeaderGroup: 1
+  enemyPayload: {fileID: 0}
+--- !u!1 &7852357846894779003
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 9110670525284410481}
+  - component: {fileID: 5463336441496838638}
+  m_Layer: 0
+  m_Name: CarrySocket
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!4 &9110670525284410481
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 7852357846894779003}
+  serializedVersion: 2
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: 0, y: 1.2, z: 0}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 8711386139643893131}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!114 &5463336441496838638
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 7852357846894779003}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 84de5433443126641942b49d70ecd82e, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::CarrySocketNew
