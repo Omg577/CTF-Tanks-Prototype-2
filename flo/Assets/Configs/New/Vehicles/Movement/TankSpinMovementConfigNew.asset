@@ -16,4 +16,4 @@ MonoBehaviour:
   accel: 30
   decel: 35
   maxTurnSpeedDeg: 360
-  turnAccelDeg: 2000
+  turnAccelDeg: 3500

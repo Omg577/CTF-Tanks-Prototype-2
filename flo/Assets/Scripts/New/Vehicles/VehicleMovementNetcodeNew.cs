@@ -10,14 +10,16 @@ public class VehicleMovementNetcodeNew : NetworkBehaviour
     [Header("Config")]
     [SerializeField] private VehicleConfigNew vehicleConfig;
 
-    [Header("Visual Root (Phase 6)")]
-    [Tooltip("This transform is what we predict/smooth. Root stays authoritative.")]
+    [Header("Visual Root")]
     [SerializeField] private Transform visualRoot;
 
     [Header("Prediction/Reconcile")]
-    [SerializeField] private float reconcilePosThreshold = 0.75f;    // loosened for Phase 6
-    [SerializeField] private float reconcileRotThresholdDeg = 12f;    // loosened for Phase 6
+    [SerializeField] private float reconcilePosThreshold = 0.75f;
+    [SerializeField] private float reconcileRotThresholdDeg = 12f;
     [SerializeField] private int bufferSize = 1024;
+
+    [Tooltip("Hard cap: max ticks we will replay in a single reconcile to avoid stalls/hangs in builds.")]
+    [SerializeField] private int maxReplayTicks = 64;
 
     [Header("Remote Visual Smoothing")]
     [SerializeField] private float remoteVisualLerpSpeed = 18f;
@@ -25,31 +27,49 @@ public class VehicleMovementNetcodeNew : NetworkBehaviour
     private Rigidbody _rb;
     private IMovementModelNew _model;
 
-    // Server: inputs keyed by *server tick*
     private readonly Dictionary<int, VehicleInputNew> _pendingServerInputs = new();
     private VehicleInputNew _lastServerInput;
 
-    // Owner prediction buffers (server tick domain)
     private VehicleInputNew[] _inputBuffer;
     private VehicleSimStateNew[] _stateBuffer;
-    private VehicleSimStateNew _predictedVisualState; // predicted state for VISUAL ONLY
+    private VehicleSimStateNew _predictedVisualState;
 
-    // Visual smoothing targets (non-owner)
     private Vector3 _visualTargetPos;
     private Quaternion _visualTargetRot;
 
-    // Debug info (Phase 7 HUD reads these)
+    private bool _tickHooked;
+
     public VehicleInputNew Debug_LastLocalInput { get; private set; }
     public VehicleInputNew Debug_LastServerAppliedInput { get; private set; }
     public float Debug_LastPosError { get; private set; }
     public float Debug_LastRotErrorDeg { get; private set; }
 
-    private float DtPerTick => 1f / NetworkManager.NetworkTickSystem.TickRate;
+    private float DtPerTick
+    {
+        get
+        {
+            var nm = NetworkManager;
+            if (nm == null) return Time.fixedDeltaTime;
+            return 1f / nm.NetworkTickSystem.TickRate;
+        }
+    }
 
-    public override void OnNetworkSpawn()
+    private void Awake()
     {
         _rb = GetComponent<Rigidbody>();
 
+        if (visualRoot == null)
+        {
+            Transform found = transform.Find("Visual");
+            visualRoot = found != null ? found : transform;
+        }
+
+        _visualTargetPos = visualRoot.position;
+        _visualTargetRot = visualRoot.rotation;
+    }
+
+    public override void OnNetworkSpawn()
+    {
         if (vehicleConfig == null || vehicleConfig.movementModel == null)
         {
             Debug.LogError($"{name}: Missing VehicleConfigNew or movementModel.");
@@ -57,22 +77,13 @@ public class VehicleMovementNetcodeNew : NetworkBehaviour
             return;
         }
 
-        // Auto-find Visual child if not assigned
-        if (visualRoot == null)
-        {
-            Transform found = transform.Find("Visual");
-            visualRoot = found != null ? found : transform;
-        }
-
         _model = vehicleConfig.movementModel.CreateRuntimeModel();
 
         _inputBuffer = new VehicleInputNew[bufferSize];
         _stateBuffer = new VehicleSimStateNew[bufferSize];
 
-        // Physics authority: only server simulates RB
         _rb.isKinematic = !IsServer;
 
-        // Initialize predicted VISUAL state from current pose
         _predictedVisualState = new VehicleSimStateNew
         {
             Position = visualRoot.position,
@@ -84,42 +95,53 @@ public class VehicleMovementNetcodeNew : NetworkBehaviour
         _visualTargetPos = visualRoot.position;
         _visualTargetRot = visualRoot.rotation;
 
-        NetworkManager.NetworkTickSystem.Tick += OnNetworkTick;
+        if (!_tickHooked && NetworkManager != null)
+        {
+            NetworkManager.NetworkTickSystem.Tick += OnNetworkTick;
+            _tickHooked = true;
+        }
     }
 
-    public override void OnNetworkDespawn()
+    public override void OnNetworkDespawn() => UnhookTick();
+
+    private void OnDestroy() => UnhookTick();
+
+    private void UnhookTick()
     {
-        if (NetworkManager != null)
+        if (_tickHooked && NetworkManager != null)
             NetworkManager.NetworkTickSystem.Tick -= OnNetworkTick;
+        _tickHooked = false;
     }
 
     private void Update()
     {
-        // Non-owner: smooth VISUAL towards visual targets
+        if (visualRoot == null) return;
+        if (!IsSpawned) return;
+
         if (!IsOwner)
         {
             float t = 1f - Mathf.Exp(-remoteVisualLerpSpeed * Time.deltaTime);
             visualRoot.position = Vector3.Lerp(visualRoot.position, _visualTargetPos, t);
             visualRoot.rotation = Quaternion.Slerp(visualRoot.rotation, _visualTargetRot, t);
         }
-        else
+        else if (IsServer)
         {
-            // Host owner: keep visual snapped to root (no prediction needed)
-            if (IsServer)
-            {
-                // If Visual is a child, lock it to root pose
-                // (If visualRoot == transform, this does nothing)
-                visualRoot.position = transform.position;
-                visualRoot.rotation = transform.rotation;
-            }
+            visualRoot.position = transform.position;
+            visualRoot.rotation = transform.rotation;
         }
     }
 
     private void OnNetworkTick()
     {
-        int serverTick = NetworkManager.NetworkTickSystem.ServerTime.Tick;
+        if (!IsSpawned) return;
+        if (_rb == null) return;
 
-        // HOST: read input locally, feed server sim; visual just follows root (handled in Update)
+        var nm = NetworkManager;
+        if (nm == null) return;
+
+        int serverTick = nm.NetworkTickSystem.ServerTime.Tick;
+
+        // Host: read input locally, feed server sim
         if (IsServer && IsOwner)
         {
             VehicleInputNew hostCmd = GatherInput(serverTick);
@@ -131,13 +153,9 @@ public class VehicleMovementNetcodeNew : NetworkBehaviour
             return;
         }
 
-        // Owner client: predict VISUAL and send input keyed by serverTick
         if (IsOwner)
-        {
             OwnerPredictVisualTick(serverTick);
-        }
 
-        // Server: authoritative sim + snapshot
         if (IsServer)
         {
             ServerSimTick(serverTick);
@@ -145,11 +163,10 @@ public class VehicleMovementNetcodeNew : NetworkBehaviour
         }
     }
 
-    // -------------------------
-    // Owner (client): predict VISUAL + send input
-    // -------------------------
     private void OwnerPredictVisualTick(int serverTick)
     {
+        if (visualRoot == null) return;
+
         VehicleInputNew cmd = GatherInput(serverTick);
         Debug_LastLocalInput = cmd;
 
@@ -159,7 +176,6 @@ public class VehicleMovementNetcodeNew : NetworkBehaviour
         _predictedVisualState = _model.Step(_predictedVisualState, cmd, DtPerTick);
         _stateBuffer[idx] = _predictedVisualState;
 
-        // PHASE 6: only move VISUAL for prediction (root stays authoritative)
         visualRoot.SetPositionAndRotation(_predictedVisualState.Position, _predictedVisualState.Rotation);
 
         SubmitInputServerRpc(cmd);
@@ -189,20 +205,15 @@ public class VehicleMovementNetcodeNew : NetworkBehaviour
         };
     }
 
-    // NGO new-style RPC attribute (replaces RequireOwnership)
     [Rpc(SendTo.Server, Delivery = RpcDelivery.Unreliable, InvokePermission = RpcInvokePermission.Owner)]
     private void SubmitInputServerRpc(VehicleInputNew cmd)
     {
         _pendingServerInputs[cmd.Tick] = cmd;
     }
 
-    // -------------------------
-    // Server: authoritative sim
-    // -------------------------
     private void ServerSimTick(int serverTick)
     {
-        // PHASE 6: tolerate late packets
-        // Prefer exact tick, else use latest input <= serverTick
+        // Tolerate late packets: exact tick else latest <= tick
         if (_pendingServerInputs.TryGetValue(serverTick, out var exact))
         {
             _lastServerInput = exact;
@@ -242,14 +253,10 @@ public class VehicleMovementNetcodeNew : NetworkBehaviour
         VehicleSimStateNew stepped = _model.Step(s, _lastServerInput, DtPerTick);
 
         _rb.linearVelocity = stepped.Velocity;
-
         float yawRadPerSec = stepped.YawDegPerSec * Mathf.Deg2Rad;
         _rb.angularVelocity = new Vector3(0f, yawRadPerSec, 0f);
     }
 
-    // -------------------------
-    // Snapshots
-    // -------------------------
     private void BroadcastSnapshot(int serverTick)
     {
         VehicleSimStateNew s = new VehicleSimStateNew
@@ -267,14 +274,13 @@ public class VehicleMovementNetcodeNew : NetworkBehaviour
     [ClientRpc(Delivery = RpcDelivery.Unreliable)]
     private void ReceiveSnapshotClientRpc(VehicleSnapshotNew snap)
     {
-        // PHASE 6: Always set ROOT immediately to server truth on clients.
-        // This prevents "physics vs smoothing fighting" and keeps authoritative position consistent.
-        if (!IsServer) // don't override server's RB-driven transform
-        {
-            transform.SetPositionAndRotation(snap.Position, snap.Rotation);
-        }
+        if (!IsSpawned) return;
+        if (visualRoot == null) return;
 
-        // Non-owner: update VISUAL smoothing targets
+        // Root snaps to server truth on clients only
+        if (!IsServer)
+            transform.SetPositionAndRotation(snap.Position, snap.Rotation);
+
         if (!IsOwner)
         {
             _visualTargetPos = snap.Position;
@@ -282,7 +288,6 @@ public class VehicleMovementNetcodeNew : NetworkBehaviour
             return;
         }
 
-        // Owner: reconcile predicted VISUAL history with server snapshot
         int idx = Mod(snap.Tick, bufferSize);
         VehicleSimStateNew predictedAtTick = _stateBuffer[idx];
 
@@ -294,18 +299,30 @@ public class VehicleMovementNetcodeNew : NetworkBehaviour
 
         if (posErr < reconcilePosThreshold && rotErr < reconcileRotThresholdDeg)
         {
-            // Even if within threshold, keep our prediction seed near server to avoid drift
             _predictedVisualState.Position = snap.Position;
             _predictedVisualState.Rotation = snap.Rotation;
             return;
         }
 
-        // Hard reset to server truth
+        // ---- CRITICAL FIX: cap replay work to prevent stalls/hangs ----
+        int currentServerTick = NetworkManager.NetworkTickSystem.ServerTime.Tick;
+        int delta = currentServerTick - snap.Tick;
+
+        // If delta is weird (negative or huge), don't replay; just reset to server state.
+        if (delta <= 0 || delta > bufferSize - 1)
+        {
+            _predictedVisualState = snap.ToSimState();
+            visualRoot.SetPositionAndRotation(_predictedVisualState.Position, _predictedVisualState.Rotation);
+            return;
+        }
+
+        int replayCount = Mathf.Min(delta, maxReplayTicks);
+
         _predictedVisualState = snap.ToSimState();
 
-        // Replay inputs from snap tick to current server tick
-        int currentServerTick = NetworkManager.NetworkTickSystem.ServerTime.Tick;
-        for (int t = snap.Tick + 1; t <= currentServerTick; t++)
+        // Replay only the last 'replayCount' ticks
+        int startTick = currentServerTick - replayCount + 1;
+        for (int t = startTick; t <= currentServerTick; t++)
         {
             int bi = Mod(t, bufferSize);
             VehicleInputNew cmd = _inputBuffer[bi];
