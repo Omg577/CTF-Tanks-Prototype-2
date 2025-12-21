@@ -751,6 +751,10 @@ PrefabInstance:
     serializedVersion: 3
     m_TransformParent: {fileID: 0}
     m_Modifications:
+    - target: {fileID: 1951849268380005168, guid: b7d529d8311d1ba43b32c590fca7eb66, type: 3}
+      propertyPath: 'm_Materials.Array.data[0]'
+      value: 
+      objectReference: {fileID: 2100000, guid: 97ea8451632a7d444a212ed8564d92e2, type: 2}
     - target: {fileID: 3262328287079694954, guid: b7d529d8311d1ba43b32c590fca7eb66, type: 3}
       propertyPath: m_Name
       value: PayloadNew B
@@ -1075,6 +1079,7 @@ MonoBehaviour:
   - {fileID: 143069761}
   - {fileID: 543679421}
   - {fileID: 1362143266}
+  assignTeamsByClientIdParity: 1
 --- !u!4 &1923009132
 Transform:
   m_ObjectHideFlags: 0
@@ -1302,17 +1307,13 @@ PrefabInstance:
     serializedVersion: 3
     m_TransformParent: {fileID: 0}
     m_Modifications:
+    - target: {fileID: 1951849268380005168, guid: b7d529d8311d1ba43b32c590fca7eb66, type: 3}
+      propertyPath: 'm_Materials.Array.data[0]'
+      value: 
+      objectReference: {fileID: 2100000, guid: b1b94d806f0c28340a5397e4b7a2ec63, type: 2}
     - target: {fileID: 3262328287079694954, guid: b7d529d8311d1ba43b32c590fca7eb66, type: 3}
       propertyPath: m_Name
       value: PayloadNewA
-      objectReference: {fileID: 0}
-    - target: {fileID: 3262328287079694954, guid: b7d529d8311d1ba43b32c590fca7eb66, type: 3}
-      propertyPath: m_Layer
-      value: 6
-      objectReference: {fileID: 0}
-    - target: {fileID: 3475217739659950906, guid: b7d529d8311d1ba43b32c590fca7eb66, type: 3}
-      propertyPath: m_Layer
-      value: 6
       objectReference: {fileID: 0}
     - target: {fileID: 6042632086093102750, guid: b7d529d8311d1ba43b32c590fca7eb66, type: 3}
       propertyPath: GlobalObjectIdHash

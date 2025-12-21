@@ -13,7 +13,8 @@ GameObject:
   - component: {fileID: 357569044769416009}
   - component: {fileID: 6202398712908696726}
   - component: {fileID: 3945323127485215429}
-  m_Layer: 0
+  - component: {fileID: 1063832799595084754}
+  m_Layer: 6
   m_Name: PayloadNew
   m_TagString: Untagged
   m_Icon: {fileID: 0}
@@ -125,7 +126,53 @@ MonoBehaviour:
   ownerTeam: 1
   autoReturnSeconds: 20
   carryOffset: {x: 0, y: 0, z: 0}
-  allowPickupWhileMoving: 1
+  pickupLockSecondsAfterDrop: 0.6
+--- !u!114 &1063832799595084754
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 3262328287079694954}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: e96cb6065543e43c4a752faaa1468eb1, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Unity.Netcode.Runtime::Unity.Netcode.Components.NetworkTransform
+  ShowTopMostFoldoutHeaderGroup: 1
+  NetworkTransformExpanded: 0
+  AutoOwnerAuthorityTickOffset: 1
+  PositionInterpolationType: 0
+  RotationInterpolationType: 0
+  ScaleInterpolationType: 0
+  PositionLerpSmoothing: 1
+  PositionMaxInterpolationTime: 0.1
+  RotationLerpSmoothing: 1
+  RotationMaxInterpolationTime: 0.1
+  ScaleLerpSmoothing: 1
+  ScaleMaxInterpolationTime: 0.1
+  AuthorityMode: 0
+  TickSyncChildren: 0
+  UseUnreliableDeltas: 0
+  SyncPositionX: 1
+  SyncPositionY: 1
+  SyncPositionZ: 1
+  SyncRotAngleX: 1
+  SyncRotAngleY: 1
+  SyncRotAngleZ: 1
+  SyncScaleX: 1
+  SyncScaleY: 1
+  SyncScaleZ: 1
+  PositionThreshold: 0.001
+  RotAngleThreshold: 0.01
+  ScaleThreshold: 0.01
+  UseQuaternionSynchronization: 0
+  UseQuaternionCompression: 0
+  UseHalfFloatPrecision: 0
+  InLocalSpace: 0
+  SwitchTransformSpaceWhenParented: 0
+  Interpolate: 1
+  SlerpPosition: 0
 --- !u!1 &3475217739659950906
 GameObject:
   m_ObjectHideFlags: 0
@@ -137,7 +184,7 @@ GameObject:
   - component: {fileID: 7280231203137078399}
   - component: {fileID: 1894412192944684354}
   - component: {fileID: 1951849268380005168}
-  m_Layer: 0
+  m_Layer: 6
   m_Name: Visual
   m_TagString: Untagged
   m_Icon: {fileID: 0}

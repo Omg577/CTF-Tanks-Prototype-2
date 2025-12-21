@@ -16,52 +16,38 @@ public class PayloadNew : NetworkBehaviour
     [Tooltip("Optional offset when carried (relative to CarrySocket).")]
     [SerializeField] private Vector3 carryOffset = Vector3.zero;
 
-    [Tooltip("If true, payload can only be picked up when it's at home or dropped. If false, same behavior anyway.")]
-    [SerializeField] private bool allowPickupWhileMoving = true;
+    [Header("Drop Safety")]
+    [Tooltip("After dropping, payload cannot be picked up for this many seconds.")]
+    [SerializeField] private float pickupLockSecondsAfterDrop = 0.6f;
 
-    // ---- Networked State (server writes, everyone reads) ----
-    // 0 means no carrier
+    // Networked state
     private readonly NetworkVariable<ulong> carrierNetObjectId = new(
-        0,
-        NetworkVariableReadPermission.Everyone,
-        NetworkVariableWritePermission.Server);
+        0, NetworkVariableReadPermission.Everyone, NetworkVariableWritePermission.Server);
 
     private readonly NetworkVariable<bool> isDropped = new(
-        false,
-        NetworkVariableReadPermission.Everyone,
-        NetworkVariableWritePermission.Server);
+        false, NetworkVariableReadPermission.Everyone, NetworkVariableWritePermission.Server);
 
-    // ---- Non-networked server state ----
+    // Server-only state
     private Vector3 _homePos;
     private Quaternion _homeRot;
     private float _dropTimer;
 
-    // Public helpers
+    // Pickup lock after drop (server-only)
+    private float _pickupLockTimer;
+
     public TeamIdNew OwnerTeam => ownerTeam;
     public bool IsCarried => carrierNetObjectId.Value != 0;
     public bool IsDropped => isDropped.Value;
     public ulong CarrierNetObjectId => carrierNetObjectId.Value;
 
-    public bool IsHome
-    {
-        get
-        {
-            // Not perfectly robust but fine for MVP
-            if (IsCarried || IsDropped) return false;
-            return true;
-        }
-    }
-
     public override void OnNetworkSpawn()
     {
-        // Capture home transform on server only
         if (IsServer)
         {
             _homePos = transform.position;
             _homeRot = transform.rotation;
         }
 
-        // Ensure trigger collider for pickup
         var col = GetComponent<Collider>();
         if (!col.isTrigger)
         {
@@ -72,18 +58,16 @@ public class PayloadNew : NetworkBehaviour
 
     private void Update()
     {
-        if (!IsSpawned) return;
+        if (!IsSpawned || !IsServer) return;
 
-        // Server drives payload position/state
-        if (!IsServer) return;
+        if (_pickupLockTimer > 0f)
+            _pickupLockTimer -= Time.deltaTime;
 
         if (IsCarried)
         {
             if (NetworkManager.SpawnManager.SpawnedObjects.TryGetValue(carrierNetObjectId.Value, out var carrierObj))
             {
                 Transform carryT = carrierObj.transform;
-
-                // Prefer a CarrySocket marker if present
                 var socket = carrierObj.GetComponentInChildren<CarrySocketNew>();
                 if (socket != null) carryT = socket.transform;
 
@@ -95,45 +79,59 @@ public class PayloadNew : NetworkBehaviour
             }
             else
             {
-                // Carrier disappeared (disconnect/despawn) -> drop
-                DropInternal();
+                // Carrier disappeared -> drop
+                DropInternal("carrier missing");
             }
         }
         else if (isDropped.Value)
         {
             _dropTimer += Time.deltaTime;
             if (_dropTimer >= autoReturnSeconds)
-                ReturnHomeInternal();
+                ReturnHomeInternal("auto-return timer");
         }
     }
 
     private void OnTriggerEnter(Collider other)
     {
         if (!IsServer) return;
+        TryPickup(other);
+    }
 
-        // Only player vehicles should pick up
+    private void OnTriggerStay(Collider other)
+    {
+        if (!IsServer) return;
+
+        // IMPORTANT: This is what fixes “I dropped it and now I can’t re-pick it up”
+        // If you dropped while overlapping, OnTriggerEnter won't fire again.
+        // OnTriggerStay allows pickup once the lock expires.
+        TryPickup(other);
+    }
+
+    private void TryPickup(Collider other)
+    {
+        if (IsCarried) return;
+
+        // Lockout window right after drop
+        if (_pickupLockTimer > 0f) return;
+
         var teamComp = other.GetComponentInParent<TeamComponentNew>();
         if (teamComp == null) return;
 
         var carrierNO = other.GetComponentInParent<NetworkObject>();
         if (carrierNO == null) return;
 
-        // Must be enemy to pick up
+        // Enemy-only pickup
         if (teamComp.Team == ownerTeam) return;
-
-        // Already carried
-        if (IsCarried) return;
-
-        // Optional gate
-        if (!allowPickupWhileMoving)
-        {
-            // If you later add a "moving" state, gate here. MVP: no-op.
-        }
 
         // Pick up
         carrierNetObjectId.Value = carrierNO.NetworkObjectId;
         isDropped.Value = false;
         _dropTimer = 0f;
+
+        // (Optional) small lock reset is fine either way; leaving it at 0 keeps it responsive
+        _pickupLockTimer = 0f;
+
+        // Debug.Log($"[PayloadNew:{name}] picked up by carrier={carrierNetObjectId.Value}");
     }
 
     // -------------------------
@@ -143,40 +141,39 @@ public class PayloadNew : NetworkBehaviour
     {
         if (!IsServer) return;
         if (!IsCarried) return;
-        DropInternal();
+        DropInternal("ServerDrop()");
     }
 
     public void ServerReturnHome()
     {
         if (!IsServer) return;
-        ReturnHomeInternal();
-    }
-
-    /// <summary>
-    /// Force clear carrier. Useful if you add death later.
-    /// </summary>
-    public void ServerClearCarrier()
-    {
-        if (!IsServer) return;
-        carrierNetObjectId.Value = 0;
+        ReturnHomeInternal("ServerReturnHome()");
     }
 
     // -------------------------
-    // Internal state transitions
+    // Internal transitions (server only)
     // -------------------------
-    private void DropInternal()
+    private void DropInternal(string reason)
     {
         carrierNetObjectId.Value = 0;
         isDropped.Value = true;
         _dropTimer = 0f;
-        // stays at current position
+
+        // Prevent immediate regrab in the same overlap
+        _pickupLockTimer = pickupLockSecondsAfterDrop;
+
+        // Debug.Log($"[PayloadNew:{name}] dropped ({reason}), lock={pickupLockSecondsAfterDrop:0.00}s");
     }
 
-    private void ReturnHomeInternal()
+    private void ReturnHomeInternal(string reason)
     {
         carrierNetObjectId.Value = 0;
         isDropped.Value = false;
         _dropTimer = 0f;
+        _pickupLockTimer = 0f;
+
         transform.SetPositionAndRotation(_homePos, _homeRot);
+
+        // Debug.Log($"[PayloadNew:{name}] returned home ({reason})");
     }
 }
