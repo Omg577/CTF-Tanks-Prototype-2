@@ -230,6 +230,13 @@ public class VehicleMovementNetcodeNew : NetworkBehaviour
             return new VehicleInputNew { Tick = tick, Throttle = 0f, Turn = 0f };
         }
 
+        // Death gating: if dead, no input (respawn manager re-enables on respawn)
+        var health = GetComponent<VehicleHealthNew>();
+        if (health != null && health.IsDead)
+        {
+            return new VehicleInputNew { Tick = tick, Throttle = 0f, Turn = 0f };
+        }
+
         var kb = Keyboard.current;
 
         float throttle = 0f;
@@ -419,6 +426,15 @@ public class VehicleMovementNetcodeNew : NetworkBehaviour
 
         _visualTargetPos = visualRoot.position;
         _visualTargetRot = YawOnly(visualRoot.rotation);
+    }
+
+    // NEW: called by RespawnManagerNew.NotifyVehicleRespawnedClientRpc(...)
+    public void ClientForceResetPredictionNow()
+    {
+        if (!IsSpawned) return;
+        if (IsServer) return; // server doesn't predict visuals
+
+        ResetClientPredictionToCurrent();
     }
 
     private static int Mod(int x, int m)

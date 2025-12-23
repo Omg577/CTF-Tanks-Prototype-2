@@ -152,6 +152,11 @@ public class GameStateManagerNew : NetworkBehaviour
         if (vehicleSpawner != null)
             vehicleSpawner.ServerTeleportAllToSpawns();
 
+        // Heal + revive everyone for the new round
+        if (RespawnManagerNew.Instance != null)
+            RespawnManagerNew.Instance.ServerResetAllVehiclesForNewRound(invulnerabilitySeconds: 1.0f);
+
+
         SetState(MatchStateNew.Countdown, now + countdownSeconds);
     }
 

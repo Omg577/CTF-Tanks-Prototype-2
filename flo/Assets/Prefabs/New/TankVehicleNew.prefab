@@ -160,6 +160,8 @@ GameObject:
   - component: {fileID: -7301793401019658691}
   - component: {fileID: 7648703138070452198}
   - component: {fileID: 3547409904604197405}
+  - component: {fileID: 6190093108066592345}
+  - component: {fileID: 5211619095193672738}
   m_Layer: 0
   m_Name: TankVehicleNew
   m_TagString: Untagged
@@ -244,7 +246,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: d5a57f767e5e46a458fc5d3c628d0cbb, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Unity.Netcode.Runtime::Unity.Netcode.NetworkObject
-  GlobalObjectIdHash: 3529496568
+  GlobalObjectIdHash: 2561788916
   InScenePlacedSourceGlobalObjectIdHash: 0
   DeferredDespawnTick: 0
   Ownership: 1
@@ -304,7 +306,6 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::TeamComponentNew
   ShowTopMostFoldoutHeaderGroup: 1
-  team: 1
 --- !u!114 &3547409904604197405
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -319,6 +320,34 @@ MonoBehaviour:
   m_EditorClassIdentifier: Assembly-CSharp::PayloadDropTesterNew
   ShowTopMostFoldoutHeaderGroup: 1
   enemyPayload: {fileID: 0}
+--- !u!114 &6190093108066592345
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 4166674769762666795}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: ed2f2bd3dddf5304b8b54852b2077533, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::VehicleHealthNew
+  ShowTopMostFoldoutHeaderGroup: 1
+  maxHealth: 100
+--- !u!114 &5211619095193672738
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 4166674769762666795}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 2fc44817276a71744b55256719d9b833, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::DamageSelfTesterNew
+  ShowTopMostFoldoutHeaderGroup: 1
+  damageAmount: 25
 --- !u!1 &7852357846894779003
 GameObject:
   m_ObjectHideFlags: 0

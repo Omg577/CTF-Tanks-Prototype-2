@@ -57,10 +57,7 @@ public class VehicleSpawnerNew : MonoBehaviour
             SpawnFor(clientId);
     }
 
-    private void OnClientConnected(ulong clientId)
-    {
-        SpawnFor(clientId);
-    }
+    private void OnClientConnected(ulong clientId) => SpawnFor(clientId);
 
     private void OnClientDisconnected(ulong clientId)
     {
@@ -94,9 +91,7 @@ public class VehicleSpawnerNew : MonoBehaviour
         Debug.Log($"[VehicleSpawnerNew] Spawned clientId={clientId}, team={team}");
     }
 
-    // -----------------------------
-    // NEW: Round reset teleport
-    // -----------------------------
+    // --------- Round reset helpers ----------
     public void ServerTeleportAllToSpawns()
     {
         if (NetworkManager.Singleton == null || !NetworkManager.Singleton.IsServer)
@@ -108,7 +103,6 @@ public class VehicleSpawnerNew : MonoBehaviour
             NetworkObject vehicle = kvp.Value;
             if (vehicle == null) continue;
 
-            // Team from TeamComponent if present; otherwise fallback to parity rule
             TeamIdNew team = ResolveTeam(clientId);
             var teamComp = vehicle.GetComponent<TeamComponentNew>();
             if (teamComp != null && teamComp.Team != TeamIdNew.None)
@@ -119,12 +113,22 @@ public class VehicleSpawnerNew : MonoBehaviour
         }
     }
 
+    // NEW: respawn manager uses this
+    public void ServerTeleportSingleToSpawn(NetworkObject vehicle, ulong clientId, TeamIdNew team)
+    {
+        if (NetworkManager.Singleton == null || !NetworkManager.Singleton.IsServer)
+            return;
+
+        if (vehicle == null) return;
+
+        Transform sp = PickSpawn(clientId, team);
+        TeleportVehicleServer(vehicle, sp.position, sp.rotation);
+    }
+
     private static void TeleportVehicleServer(NetworkObject vehicle, Vector3 pos, Quaternion rot)
     {
-        // Set transform
         vehicle.transform.SetPositionAndRotation(pos, rot);
 
-        // Also hard-reset Rigidbody if present (important)
         var rb = vehicle.GetComponent<Rigidbody>();
         if (rb != null)
         {
@@ -132,7 +136,6 @@ public class VehicleSpawnerNew : MonoBehaviour
             rb.rotation = rot;
             rb.linearVelocity = Vector3.zero;
             rb.angularVelocity = Vector3.zero;
-
             rb.Sleep();
             rb.WakeUp();
         }
@@ -152,7 +155,6 @@ public class VehicleSpawnerNew : MonoBehaviour
             return this.transform;
 
         int n = spawnPoints.Length;
-
         if (n == 1)
             return spawnPoints[0] != null ? spawnPoints[0] : this.transform;
 
@@ -162,7 +164,7 @@ public class VehicleSpawnerNew : MonoBehaviour
         if (team == TeamIdNew.TeamA)
         {
             start = 0;
-            count = Mathf.Max(1, half + (n % 2)); // TeamA gets extra if odd
+            count = Mathf.Max(1, half + (n % 2));
         }
         else
         {
