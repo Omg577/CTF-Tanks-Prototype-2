@@ -40,8 +40,23 @@ public class RespawnManagerNew : NetworkBehaviour
     {
         if (!IsServer) return;
 
-        if (!NetworkManager.SpawnManager.SpawnedObjects.TryGetValue(victimVehicleNetworkObjectId, out var victimNO))
+        // Find the victim vehicle
+        if (!NetworkManager.SpawnManager.SpawnedObjects.TryGetValue(victimVehicleNetworkObjectId, out var victimNO) || victimNO == null)
             return;
+
+        // ----------------------------
+        // 11.2 Stats: deaths + kills
+        // ----------------------------
+        if (PlayerStatsManagerNew.Instance != null)
+        {
+            ulong victimClientId = victimNO.OwnerClientId;
+
+            PlayerStatsManagerNew.Instance.ServerAddDeath(victimClientId);
+
+            // Award a kill only if instigator is valid and not self
+            if (instigatorClientId != ulong.MaxValue && instigatorClientId != victimClientId)
+                PlayerStatsManagerNew.Instance.ServerAddKill(instigatorClientId);
+        }
 
         // Drop payload if victim is carrying it
         DropAnyPayloadCarriedBy(victimVehicleNetworkObjectId);
@@ -49,7 +64,7 @@ public class RespawnManagerNew : NetworkBehaviour
         // Disable victim physics/movement server-side
         ServerDisableVehicle(victimNO);
 
-        // If a respawn is already scheduled, replace it
+        // Start respawn timer (cancel/replace if already scheduled)
         if (_respawnRoutinesByVehicleId.TryGetValue(victimVehicleNetworkObjectId, out var existing) && existing != null)
         {
             StopCoroutine(existing);
@@ -59,6 +74,7 @@ public class RespawnManagerNew : NetworkBehaviour
         Coroutine c = StartCoroutine(ServerRespawnRoutine(victimVehicleNetworkObjectId));
         _respawnRoutinesByVehicleId[victimVehicleNetworkObjectId] = c;
     }
+
 
     /// <summary>
     /// NEW: Called on the server when a new round begins.
