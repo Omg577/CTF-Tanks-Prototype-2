@@ -955,6 +955,7 @@ MonoBehaviour:
   requireBothTeamsPresent: 1
   payloadTeamA: {fileID: 1053800677}
   payloadTeamB: {fileID: 1545341483}
+  vehicleSpawner: {fileID: 1923009131}
 --- !u!4 &868269014
 Transform:
   m_ObjectHideFlags: 0

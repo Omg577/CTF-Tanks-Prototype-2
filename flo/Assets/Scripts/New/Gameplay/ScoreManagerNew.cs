@@ -25,4 +25,11 @@ public class ScoreManagerNew : NetworkBehaviour
         if (scoringTeam == TeamIdNew.TeamA) teamAScore.Value++;
         else if (scoringTeam == TeamIdNew.TeamB) teamBScore.Value++;
     }
+
+    public void ServerResetScores()
+    {
+        if (!IsServer) return;
+        teamAScore.Value = 0;
+        teamBScore.Value = 0;
+    }
 }

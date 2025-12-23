@@ -51,10 +51,8 @@ public class VehicleSpawnerNew : MonoBehaviour
     {
         if (!NetworkManager.Singleton.IsServer) return;
 
-        // Hook client connect now that we're server
         NetworkManager.Singleton.OnClientConnectedCallback += OnClientConnected;
 
-        // Spawn for everyone already connected (host counts)
         foreach (ulong clientId in NetworkManager.Singleton.ConnectedClientsIds)
             SpawnFor(clientId);
     }
@@ -86,32 +84,65 @@ public class VehicleSpawnerNew : MonoBehaviour
         Transform sp = PickSpawn(clientId, team);
 
         NetworkObject vehicle = Instantiate(vehiclePrefab, sp.position, sp.rotation);
-
-        // IMPORTANT: Spawn first so NetworkVariables exist on all peers
         vehicle.SpawnWithOwnership(clientId, destroyWithScene: true);
 
-        // Assign team on the spawned instance (server authoritative)
         var teamComp = vehicle.GetComponent<TeamComponentNew>();
-        if (teamComp != null)
-        {
-            teamComp.ServerSetTeam(team);
-        }
-        else
-        {
-            Debug.LogWarning("VehicleSpawnerNew: Spawned vehicle has no TeamComponentNew.");
-        }
+        if (teamComp != null) teamComp.ServerSetTeam(team);
 
         _spawned[clientId] = vehicle;
 
-        Debug.Log($"[VehicleSpawnerNew] Spawned vehicle for clientId={clientId}, team={team}, spawn=({sp.position.x:0.0},{sp.position.y:0.0},{sp.position.z:0.0})");
+        Debug.Log($"[VehicleSpawnerNew] Spawned clientId={clientId}, team={team}");
+    }
+
+    // -----------------------------
+    // NEW: Round reset teleport
+    // -----------------------------
+    public void ServerTeleportAllToSpawns()
+    {
+        if (NetworkManager.Singleton == null || !NetworkManager.Singleton.IsServer)
+            return;
+
+        foreach (var kvp in _spawned)
+        {
+            ulong clientId = kvp.Key;
+            NetworkObject vehicle = kvp.Value;
+            if (vehicle == null) continue;
+
+            // Team from TeamComponent if present; otherwise fallback to parity rule
+            TeamIdNew team = ResolveTeam(clientId);
+            var teamComp = vehicle.GetComponent<TeamComponentNew>();
+            if (teamComp != null && teamComp.Team != TeamIdNew.None)
+                team = teamComp.Team;
+
+            Transform sp = PickSpawn(clientId, team);
+            TeleportVehicleServer(vehicle, sp.position, sp.rotation);
+        }
+    }
+
+    private static void TeleportVehicleServer(NetworkObject vehicle, Vector3 pos, Quaternion rot)
+    {
+        // Set transform
+        vehicle.transform.SetPositionAndRotation(pos, rot);
+
+        // Also hard-reset Rigidbody if present (important)
+        var rb = vehicle.GetComponent<Rigidbody>();
+        if (rb != null)
+        {
+            rb.position = pos;
+            rb.rotation = rot;
+            rb.linearVelocity = Vector3.zero;
+            rb.angularVelocity = Vector3.zero;
+
+            rb.Sleep();
+            rb.WakeUp();
+        }
     }
 
     private TeamIdNew ResolveTeam(ulong clientId)
     {
         if (!assignTeamsByClientIdParity)
-            return TeamIdNew.TeamA; // default MVP fallback
+            return TeamIdNew.TeamA;
 
-        // MVP rule: even = A, odd = B
         return (clientId % 2UL == 0UL) ? TeamIdNew.TeamA : TeamIdNew.TeamB;
     }
 
@@ -120,19 +151,14 @@ public class VehicleSpawnerNew : MonoBehaviour
         if (spawnPoints == null || spawnPoints.Length == 0)
             return this.transform;
 
-        // If you provide 2+ spawns, we split them by team:
-        // first half -> TeamA, second half -> TeamB
         int n = spawnPoints.Length;
 
-        // If only 1 spawn point, just use it
         if (n == 1)
             return spawnPoints[0] != null ? spawnPoints[0] : this.transform;
 
         int half = n / 2;
 
-        // If n is odd, TeamA gets the extra point by default
         int start, count;
-
         if (team == TeamIdNew.TeamA)
         {
             start = 0;
@@ -144,7 +170,6 @@ public class VehicleSpawnerNew : MonoBehaviour
             count = Mathf.Max(1, n - start);
         }
 
-        // Choose within that team's spawn range by clientId
         int idxInTeam = (int)(clientId % (ulong)count);
         int idx = start + idxInTeam;
 
