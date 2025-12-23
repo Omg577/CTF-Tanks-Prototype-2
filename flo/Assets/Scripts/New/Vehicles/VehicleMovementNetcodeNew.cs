@@ -209,6 +209,12 @@ public class VehicleMovementNetcodeNew : NetworkBehaviour
 
     private VehicleInputNew GatherInput(int tick)
     {
+        var gsm = GameStateManagerNew.Instance;
+        if (gsm != null && !gsm.PlayersCanMove)
+        {
+            return new VehicleInputNew { Tick = tick, Throttle = 0f, Turn = 0f };
+        }
+
         var kb = Keyboard.current;
 
         float throttle = 0f;
