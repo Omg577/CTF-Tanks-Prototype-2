@@ -17,6 +17,9 @@ public class PayloadNew : NetworkBehaviour
     [Header("Drop Safety")]
     [SerializeField] private float pickupLockSecondsAfterDrop = 0.6f;
 
+    [SerializeField] private float pickupLockSecondsAfterReturnHome = 0.6f;
+
+
     // Networked state
     private readonly NetworkVariable<ulong> carrierNetObjectId = new(
         0, NetworkVariableReadPermission.Everyone, NetworkVariableWritePermission.Server);
@@ -145,7 +148,7 @@ public class PayloadNew : NetworkBehaviour
         isDropped.Value = false;
         droppedAtServerTime.Value = 0;
 
-        _pickupLockTimer = 0f;
+        _pickupLockTimer = pickupLockSecondsAfterReturnHome;
         transform.SetPositionAndRotation(_homePos, _homeRot);
     }
 
