@@ -21,8 +21,20 @@ public class VehicleMovementNetcodeNew : NetworkBehaviour
     [Tooltip("Hard cap: max ticks we will replay in a single reconcile to avoid stalls/hangs in builds.")]
     [SerializeField] private int maxReplayTicks = 64;
 
-    [Header("Remote Visual Smoothing")]
-    [SerializeField] private float remoteVisualLerpSpeed = 18f;
+    [Header("Remote Visual Smoothing (Buffered Interpolation)")]
+    [Tooltip("Render this many ticks behind the server tick so we can interpolate between known snapshots.")]
+    [SerializeField] private int interpolationDelayTicks = 3;
+
+    [Tooltip("How many remote snapshots to keep buffered (per vehicle).")]
+    [SerializeField] private int remoteSnapshotBufferLimit = 32;
+
+    [Tooltip("Allow a small extrapolation window if we run out of snapshots (helps during packet loss).")]
+    [SerializeField] private int maxExtrapolationTicks = 2;
+
+    [Tooltip("Optional extra exponential smoothing on top of buffered interpolation.")]
+    [SerializeField] private bool extraExpSmoothing = false;
+
+    [SerializeField] private float remoteVisualLerpSpeed = 18f; // used only if extraExpSmoothing is enabled
 
     private Rigidbody _rb;
     private IMovementModelNew _model;
@@ -36,10 +48,10 @@ public class VehicleMovementNetcodeNew : NetworkBehaviour
     private VehicleSimStateNew[] _stateBuffer;
     private VehicleSimStateNew _predictedVisualState;
 
-    // Visual smoothing targets (non-owner)
-    private Vector3 _visualTargetPos;
-    private Quaternion _visualTargetRot;
+    // Remote snapshots buffer (non-owner)
+    private readonly List<VehicleSnapshotNew> _remoteSnapshots = new();
 
+    // Tick hook
     private bool _tickHooked;
 
     // Round reset guard (prevents prediction freakout after server teleport)
@@ -57,7 +69,9 @@ public class VehicleMovementNetcodeNew : NetworkBehaviour
         {
             var nm = NetworkManager;
             if (nm == null) return Time.fixedDeltaTime;
-            return 1f / nm.NetworkTickSystem.TickRate;
+            return (float)nm.NetworkConfig.TickRate > 0
+                ? 1f / nm.NetworkConfig.TickRate
+                : Time.fixedDeltaTime;
         }
     }
 
@@ -80,8 +94,12 @@ public class VehicleMovementNetcodeNew : NetworkBehaviour
             visualRoot = found != null ? found : transform;
         }
 
-        _visualTargetPos = visualRoot.position;
-        _visualTargetRot = YawOnly(visualRoot.rotation);
+        if (visualRoot == transform)
+        {
+            Debug.LogWarning($"{name}: visualRoot is the root transform. " +
+                             "Create a child named 'Visual' and move meshes under it, " +
+                             "so client-side visual prediction doesn't move the physics body.");
+        }
     }
 
     public override void OnNetworkSpawn()
@@ -98,33 +116,23 @@ public class VehicleMovementNetcodeNew : NetworkBehaviour
         _inputBuffer = new VehicleInputNew[bufferSize];
         _stateBuffer = new VehicleSimStateNew[bufferSize];
 
+        _remoteSnapshots.Clear();
+
         // Physics authority: only server simulates RB
         _rb.isKinematic = !IsServer;
 
-        // --- Authority + stability ---
-        _rb.interpolation = RigidbodyInterpolation.Interpolate;
-
-        // Clients: never simulate physics or resolve collisions
+        // Clients should not locally participate in collision/gravity resolution.
+        // This prevents "popping", getting stuck, or fighting server corrections.
         if (!IsServer)
         {
-            _rb.isKinematic = true;
             _rb.detectCollisions = false;
             _rb.useGravity = false;
         }
         else
         {
-            // Server: authoritative physics
-            _rb.isKinematic = false;
             _rb.detectCollisions = true;
-
-            // Planar tank: never leave the ground plane
             _rb.useGravity = false;
-            _rb.constraints =
-                RigidbodyConstraints.FreezePositionY |
-                RigidbodyConstraints.FreezeRotationX |
-                RigidbodyConstraints.FreezeRotationZ;
         }
-
 
         // Initialize predicted visual state (yaw-only)
         _predictedVisualState = new VehicleSimStateNew
@@ -134,9 +142,6 @@ public class VehicleMovementNetcodeNew : NetworkBehaviour
             Velocity = Vector3.zero,
             YawDegPerSec = 0f
         };
-
-        _visualTargetPos = visualRoot.position;
-        _visualTargetRot = YawOnly(visualRoot.rotation);
 
         if (!_tickHooked && NetworkManager != null)
         {
@@ -159,12 +164,22 @@ public class VehicleMovementNetcodeNew : NetworkBehaviour
     {
         if (!IsSpawned || visualRoot == null) return;
 
-        // Non-owner: smooth visual towards snapshot targets
+        // Non-owner: buffered snapshot interpolation for smooth visuals
         if (!IsOwner)
         {
-            float t = 1f - Mathf.Exp(-remoteVisualLerpSpeed * Time.deltaTime);
-            visualRoot.position = Vector3.Lerp(visualRoot.position, _visualTargetPos, t);
-            visualRoot.rotation = Quaternion.Slerp(visualRoot.rotation, _visualTargetRot, t);
+            if (TryGetRemoteInterpolatedPose(out Vector3 p, out Quaternion r))
+            {
+                if (extraExpSmoothing)
+                {
+                    float t = 1f - Mathf.Exp(-remoteVisualLerpSpeed * Time.deltaTime);
+                    visualRoot.position = Vector3.Lerp(visualRoot.position, p, t);
+                    visualRoot.rotation = Quaternion.Slerp(visualRoot.rotation, r, t);
+                }
+                else
+                {
+                    visualRoot.SetPositionAndRotation(p, r);
+                }
+            }
         }
         else if (IsServer)
         {
@@ -185,27 +200,42 @@ public class VehicleMovementNetcodeNew : NetworkBehaviour
         var gsm = GameStateManagerNew.Instance;
         if (gsm != null)
         {
-            int rid = gsm.RoundId;
-            if (rid != _lastRoundIdSeen)
+            int roundId = gsm.RoundId;
+            if (_lastRoundIdSeen != roundId)
             {
-                _lastRoundIdSeen = rid;
+                _lastRoundIdSeen = roundId;
 
-                // Only clients need this (server is authoritative)
+                // Clear any buffered inputs/states to prevent replay after teleport/spawn reset
                 if (!IsServer)
+                {
                     ResetClientPredictionToCurrent();
+                }
+                else
+                {
+                    _pendingServerInputs.Clear();
+                }
             }
         }
 
         int serverTick = nm.NetworkTickSystem.ServerTime.Tick;
 
-        // HOST: read input locally, feed server sim
-        if (IsServer && IsOwner)
+        // Server: consume queued input and simulate authoritative root
+        if (IsServer)
         {
-            VehicleInputNew hostCmd = GatherInput(serverTick);
-            Debug_LastLocalInput = hostCmd;
+            // Host owner: gather input locally and simulate immediately
+            if (IsOwner)
+            {
+                VehicleInputNew hostCmd = GatherInput(serverTick);
+                Debug_LastLocalInput = hostCmd;
 
-            _pendingServerInputs[serverTick] = hostCmd;
+                _pendingServerInputs[serverTick] = hostCmd;
 
+                ServerSimTick(serverTick);
+                BroadcastSnapshot(serverTick);
+                return;
+            }
+
+            // Dedicated server: use last received input for each tick (or zero)
             ServerSimTick(serverTick);
             BroadcastSnapshot(serverTick);
             return;
@@ -214,36 +244,6 @@ public class VehicleMovementNetcodeNew : NetworkBehaviour
         // Owner client: predict VISUAL and send input
         if (IsOwner)
             OwnerPredictVisualTick(serverTick);
-
-        // Dedicated server: sim + broadcast
-        if (IsServer)
-        {
-            ServerSimTick(serverTick);
-            BroadcastSnapshot(serverTick);
-        }
-    }
-
-    // -------------------------
-    // Owner prediction (visual only)
-    // -------------------------
-    private void OwnerPredictVisualTick(int serverTick)
-    {
-        if (visualRoot == null) return;
-
-        VehicleInputNew cmd = GatherInput(serverTick);
-        Debug_LastLocalInput = cmd;
-
-        int idx = Mod(serverTick, bufferSize);
-        _inputBuffer[idx] = cmd;
-
-        _predictedVisualState = _model.Step(_predictedVisualState, cmd, DtPerTick);
-        _predictedVisualState.Rotation = YawOnly(_predictedVisualState.Rotation);
-
-        _stateBuffer[idx] = _predictedVisualState;
-
-        visualRoot.SetPositionAndRotation(_predictedVisualState.Position, _predictedVisualState.Rotation);
-
-        SubmitInputServerRpc(cmd);
     }
 
     private VehicleInputNew GatherInput(int tick)
@@ -263,7 +263,6 @@ public class VehicleMovementNetcodeNew : NetworkBehaviour
         }
 
         var kb = Keyboard.current;
-
         float throttle = 0f;
         float turn = 0f;
 
@@ -280,51 +279,66 @@ public class VehicleMovementNetcodeNew : NetworkBehaviour
         {
             Tick = tick,
             Throttle = Mathf.Clamp(throttle, -1f, 1f),
-            Turn = Mathf.Clamp(turn, -1f, 1f),
+            Turn = Mathf.Clamp(turn, -1f, 1f)
         };
     }
 
-    [Rpc(SendTo.Server, Delivery = RpcDelivery.Unreliable, InvokePermission = RpcInvokePermission.Owner)]
+    // -------------------------
+    // Owner client prediction
+    // -------------------------
+    private void OwnerPredictVisualTick(int serverTick)
+    {
+        VehicleInputNew cmd = GatherInput(serverTick);
+        Debug_LastLocalInput = cmd;
+
+        int idx = Mod(serverTick, bufferSize);
+        _inputBuffer[idx] = cmd;
+
+        // Predict VISUAL state forward
+        _predictedVisualState = _model.Step(_predictedVisualState, cmd, DtPerTick);
+        _predictedVisualState.Rotation = YawOnly(_predictedVisualState.Rotation);
+
+        _stateBuffer[idx] = _predictedVisualState;
+
+        // Apply predicted pose to visual only
+        visualRoot.SetPositionAndRotation(_predictedVisualState.Position, _predictedVisualState.Rotation);
+
+        // Send input to server
+        SubmitInputServerRpc(cmd);
+    }
+
+    [ServerRpc(Delivery = RpcDelivery.Unreliable)]
     private void SubmitInputServerRpc(VehicleInputNew cmd)
     {
+        // Store the input for this tick so server sim can consume it
         _pendingServerInputs[cmd.Tick] = cmd;
+        _lastServerInput = cmd;
+        Debug_LastServerAppliedInput = cmd;
     }
 
     // -------------------------
-    // Server authoritative simulation
+    // Server simulation
     // -------------------------
     private void ServerSimTick(int serverTick)
     {
-        // Tolerate late packets: exact tick else latest <= tick
-        if (_pendingServerInputs.TryGetValue(serverTick, out var exact))
+        VehicleInputNew cmd;
+
+        if (IsOwner)
         {
-            _lastServerInput = exact;
-            _pendingServerInputs.Remove(serverTick);
+            // host owner sim already queued for this tick
+            if (!_pendingServerInputs.TryGetValue(serverTick, out cmd))
+                cmd = _lastServerInput;
         }
         else
         {
-            int bestTick = int.MinValue;
-            VehicleInputNew bestCmd = default;
-
-            foreach (var kvp in _pendingServerInputs)
-            {
-                if (kvp.Key <= serverTick && kvp.Key > bestTick)
-                {
-                    bestTick = kvp.Key;
-                    bestCmd = kvp.Value;
-                }
-            }
-
-            if (bestTick != int.MinValue)
-            {
-                _lastServerInput = bestCmd;
-                _pendingServerInputs.Remove(bestTick);
-            }
+            // non-host players: use input from that tick if it arrived, else last
+            if (!_pendingServerInputs.TryGetValue(serverTick, out cmd))
+                cmd = _lastServerInput;
         }
 
-        Debug_LastServerAppliedInput = _lastServerInput;
+        // Ensure tick set (when falling back)
+        cmd.Tick = serverTick;
 
-        // Read current RB state (yaw-only seed)
         VehicleSimStateNew s = new VehicleSimStateNew
         {
             Position = _rb.position,
@@ -333,20 +347,16 @@ public class VehicleMovementNetcodeNew : NetworkBehaviour
             YawDegPerSec = _rb.angularVelocity.y * Mathf.Rad2Deg
         };
 
-        // Step + enforce yaw-only
-        VehicleSimStateNew stepped = _model.Step(s, _lastServerInput, DtPerTick);
-        stepped.Rotation = YawOnly(stepped.Rotation);
+        s = _model.Step(s, cmd, DtPerTick);
+        s.Rotation = YawOnly(s.Rotation);
 
-        // Apply to RB
-        _rb.linearVelocity = stepped.Velocity;
+        _rb.MovePosition(s.Position);
+        _rb.MoveRotation(s.Rotation);
 
-        float yawRadPerSec = stepped.YawDegPerSec * Mathf.Deg2Rad;
-        _rb.angularVelocity = new Vector3(0f, yawRadPerSec, 0f);
+        _rb.linearVelocity = s.Velocity;
+        _rb.angularVelocity = new Vector3(0f, s.YawDegPerSec * Mathf.Deg2Rad, 0f);
     }
 
-    // -------------------------
-    // Snapshot broadcast + reconcile
-    // -------------------------
     private void BroadcastSnapshot(int serverTick)
     {
         VehicleSimStateNew s = new VehicleSimStateNew
@@ -369,16 +379,17 @@ public class VehicleMovementNetcodeNew : NetworkBehaviour
         Quaternion snapYaw = YawOnly(snap.Rotation);
 
         // Root follows server truth on clients
-        if (!IsServer)
+        if (!IsServer && IsOwner)
         {
             transform.SetPositionAndRotation(snap.Position, snapYaw);
         }
 
-        // Non-owner: smooth visual
+
+        // Non-owner: buffer snapshots for interpolation
         if (!IsOwner)
         {
-            _visualTargetPos = snap.Position;
-            _visualTargetRot = snapYaw;
+            snap.Rotation = snapYaw; // ensure yaw-only stored
+            EnqueueRemoteSnapshot(snap);
             return;
         }
 
@@ -432,11 +443,133 @@ public class VehicleMovementNetcodeNew : NetworkBehaviour
     }
 
     // -------------------------
+    // Remote snapshot interpolation (non-owner)
+    // -------------------------
+
+    private void EnqueueRemoteSnapshot(VehicleSnapshotNew snap)
+    {
+        int n = _remoteSnapshots.Count;
+
+        if (n > 0)
+        {
+            int lastTick = _remoteSnapshots[n - 1].Tick;
+
+            if (snap.Tick < lastTick)
+            {
+                // Late/out-of-order: insert in correct place (or replace duplicate)
+                for (int i = 0; i < n; i++)
+                {
+                    if (_remoteSnapshots[i].Tick == snap.Tick)
+                    {
+                        _remoteSnapshots[i] = snap;
+                        return;
+                    }
+
+                    if (_remoteSnapshots[i].Tick > snap.Tick)
+                    {
+                        _remoteSnapshots.Insert(i, snap);
+                        TrimRemoteBuffer();
+                        return;
+                    }
+                }
+
+                // Older than everything we have: ignore
+                return;
+            }
+
+            if (snap.Tick == lastTick)
+            {
+                _remoteSnapshots[n - 1] = snap;
+                return;
+            }
+        }
+
+        _remoteSnapshots.Add(snap);
+        TrimRemoteBuffer();
+    }
+
+    private void TrimRemoteBuffer()
+    {
+        int over = _remoteSnapshots.Count - remoteSnapshotBufferLimit;
+        if (over > 0)
+            _remoteSnapshots.RemoveRange(0, over);
+    }
+
+    private bool TryGetRemoteInterpolatedPose(out Vector3 pos, out Quaternion rot)
+    {
+        pos = visualRoot.position;
+        rot = YawOnly(visualRoot.rotation);
+
+        if (_remoteSnapshots.Count == 0) return false;
+        if (NetworkManager == null) return false;
+
+        int serverTick = NetworkManager.NetworkTickSystem.ServerTime.Tick;
+        int renderTick = serverTick - interpolationDelayTicks;
+
+        // Clamp before oldest
+        VehicleSnapshotNew oldest = _remoteSnapshots[0];
+        if (renderTick <= oldest.Tick)
+        {
+            pos = oldest.Position;
+            rot = YawOnly(oldest.Rotation);
+            return true;
+        }
+
+        VehicleSnapshotNew newest = _remoteSnapshots[_remoteSnapshots.Count - 1];
+
+        // If we're beyond newest, optionally extrapolate a tiny bit
+        if (renderTick >= newest.Tick)
+        {
+            int dtTicks = renderTick - newest.Tick;
+
+            if (dtTicks <= maxExtrapolationTicks)
+            {
+                float dt = dtTicks * DtPerTick;
+                pos = newest.Position + newest.Velocity * dt;
+
+                float yawDelta = newest.YawDegPerSec * dt;
+                rot = YawOnly(newest.Rotation) * Quaternion.Euler(0f, yawDelta, 0f);
+                return true;
+            }
+
+            pos = newest.Position;
+            rot = YawOnly(newest.Rotation);
+            return true;
+        }
+
+        // Find surrounding snapshots (linear scan is fine for small buffers)
+        VehicleSnapshotNew a = oldest;
+        VehicleSnapshotNew b = newest;
+
+        for (int i = 0; i < _remoteSnapshots.Count - 1; i++)
+        {
+            VehicleSnapshotNew s0 = _remoteSnapshots[i];
+            VehicleSnapshotNew s1 = _remoteSnapshots[i + 1];
+
+            if (s0.Tick <= renderTick && renderTick <= s1.Tick)
+            {
+                a = s0;
+                b = s1;
+                break;
+            }
+        }
+
+        int span = Mathf.Max(1, b.Tick - a.Tick);
+        float alpha = Mathf.Clamp01((renderTick - a.Tick) / (float)span);
+
+        pos = Vector3.Lerp(a.Position, b.Position, alpha);
+        rot = Quaternion.Slerp(YawOnly(a.Rotation), YawOnly(b.Rotation), alpha);
+        return true;
+    }
+
+    // -------------------------
     // Teleport/round reset helpers
     // -------------------------
     private void ResetClientPredictionToCurrent()
     {
         if (visualRoot == null) return;
+
+        _remoteSnapshots.Clear();
 
         _predictedVisualState = new VehicleSimStateNew
         {
@@ -448,9 +581,6 @@ public class VehicleMovementNetcodeNew : NetworkBehaviour
 
         if (_inputBuffer != null) System.Array.Clear(_inputBuffer, 0, _inputBuffer.Length);
         if (_stateBuffer != null) System.Array.Clear(_stateBuffer, 0, _stateBuffer.Length);
-
-        _visualTargetPos = visualRoot.position;
-        _visualTargetRot = YawOnly(visualRoot.rotation);
     }
 
     // NEW: called by RespawnManagerNew.NotifyVehicleRespawnedClientRpc(...)

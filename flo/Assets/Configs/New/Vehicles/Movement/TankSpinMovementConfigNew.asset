@@ -12,8 +12,8 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: b6e6477f7b821464fbaea20c28af442e, type: 3}
   m_Name: TankSpinMovementConfigNew
   m_EditorClassIdentifier: Assembly-CSharp::TankSpinMovementConfigNew
-  maxSpeed: 9
+  maxSpeed: 4
   accel: 30
   decel: 35
-  maxTurnSpeedDeg: 360
+  maxTurnSpeedDeg: 180
   turnAccelDeg: 3500
