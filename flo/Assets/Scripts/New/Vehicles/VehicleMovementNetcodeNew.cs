@@ -101,6 +101,31 @@ public class VehicleMovementNetcodeNew : NetworkBehaviour
         // Physics authority: only server simulates RB
         _rb.isKinematic = !IsServer;
 
+        // --- Authority + stability ---
+        _rb.interpolation = RigidbodyInterpolation.Interpolate;
+
+        // Clients: never simulate physics or resolve collisions
+        if (!IsServer)
+        {
+            _rb.isKinematic = true;
+            _rb.detectCollisions = false;
+            _rb.useGravity = false;
+        }
+        else
+        {
+            // Server: authoritative physics
+            _rb.isKinematic = false;
+            _rb.detectCollisions = true;
+
+            // Planar tank: never leave the ground plane
+            _rb.useGravity = false;
+            _rb.constraints =
+                RigidbodyConstraints.FreezePositionY |
+                RigidbodyConstraints.FreezeRotationX |
+                RigidbodyConstraints.FreezeRotationZ;
+        }
+
+
         // Initialize predicted visual state (yaw-only)
         _predictedVisualState = new VehicleSimStateNew
         {
