@@ -145,6 +145,10 @@ public class GameStateManagerNew : NetworkBehaviour
         if (ScoreManagerNew.Instance != null)
             ScoreManagerNew.Instance.ServerResetScores();
 
+        if (PlayerStatsManagerNew.Instance != null)
+            PlayerStatsManagerNew.Instance.ServerResetAll();
+
+
         if (payloadTeamA != null) payloadTeamA.ServerReturnHome();
         if (payloadTeamB != null) payloadTeamB.ServerReturnHome();
 

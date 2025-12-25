@@ -1401,11 +1401,11 @@ PrefabInstance:
       objectReference: {fileID: 0}
     - target: {fileID: 3262328287079694954, guid: b7d529d8311d1ba43b32c590fca7eb66, type: 3}
       propertyPath: m_Layer
-      value: 6
+      value: 9
       objectReference: {fileID: 0}
     - target: {fileID: 3475217739659950906, guid: b7d529d8311d1ba43b32c590fca7eb66, type: 3}
       propertyPath: m_Layer
-      value: 6
+      value: 9
       objectReference: {fileID: 0}
     - target: {fileID: 3945323127485215429, guid: b7d529d8311d1ba43b32c590fca7eb66, type: 3}
       propertyPath: ownerTeam
@@ -2512,6 +2512,14 @@ PrefabInstance:
     - target: {fileID: 3262328287079694954, guid: b7d529d8311d1ba43b32c590fca7eb66, type: 3}
       propertyPath: m_Name
       value: PayloadNewA
+      objectReference: {fileID: 0}
+    - target: {fileID: 3262328287079694954, guid: b7d529d8311d1ba43b32c590fca7eb66, type: 3}
+      propertyPath: m_Layer
+      value: 9
+      objectReference: {fileID: 0}
+    - target: {fileID: 3475217739659950906, guid: b7d529d8311d1ba43b32c590fca7eb66, type: 3}
+      propertyPath: m_Layer
+      value: 9
       objectReference: {fileID: 0}
     - target: {fileID: 6042632086093102750, guid: b7d529d8311d1ba43b32c590fca7eb66, type: 3}
       propertyPath: GlobalObjectIdHash
