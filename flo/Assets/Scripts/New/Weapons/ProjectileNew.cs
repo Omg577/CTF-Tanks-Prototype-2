@@ -26,6 +26,9 @@ public class ProjectileNew : NetworkBehaviour
 
     private bool _hasImpacted;
 
+    // NEW: for falloff
+    private Vector3 _spawnPos;
+
     private void Awake()
     {
         _rb = GetComponent<Rigidbody>();
@@ -61,6 +64,8 @@ public class ProjectileNew : NetworkBehaviour
         _instigatorVehicleNetObjId = instigatorVehicleNetObjId;
         _instigatorTeam = instigatorTeam;
 
+        _spawnPos = transform.position;
+
         _dieAt = Time.time + Mathf.Max(0.05f, config.lifetime);
         _hasImpacted = false;
 
@@ -68,7 +73,6 @@ public class ProjectileNew : NetworkBehaviour
         _rb.angularVelocity = Vector3.zero;
 
         // IMPORTANT: arm immediately. Shooter collision safety is handled by IgnoreCollision in the weapon controller.
-        // (Your old 0.02s arm delay caused point-blank hits to be ignored.)
         TryPointBlankOverlapHit();
     }
 
@@ -112,14 +116,24 @@ public class ProjectileNew : NetworkBehaviour
                 var tc = hitNO.GetComponent<TeamComponentNew>();
                 if (tc != null && tc.Team == _instigatorTeam)
                 {
-                    // Still show impact then despawn
                     HandleImpact(collision);
                     return;
                 }
             }
 
+            // NEW: weakspot multiplier
+            float mult = 1f;
+            var weak = collision.collider.GetComponentInParent<WeakSpotNew>();
+            if (weak != null)
+                mult *= weak.damageMultiplier;
+
+            // NEW: falloff multiplier
+            mult *= DamageFalloffMultiplier(Vector3.Distance(_spawnPos, collision.GetContact(0).point));
+
+            int finalDamage = Mathf.RoundToInt(_config.damage * mult);
+
             // Apply damage on server
-            health.ServerApplyDamage(_config.damage, _instigatorClientId);
+            health.ServerApplyDamage(finalDamage, _instigatorClientId);
 
             HandleImpact(collision);
             return;
@@ -135,6 +149,16 @@ public class ProjectileNew : NetworkBehaviour
 
         // World impact
         HandleImpact(collision);
+    }
+
+    private float DamageFalloffMultiplier(float distance)
+    {
+        if (_config == null) return 1f;
+        if (!_config.useFalloff) return 1f;
+
+        float maxD = Mathf.Max(0.001f, _config.falloffMaxDistance);
+        float norm = Mathf.Clamp01(distance / maxD);
+        return Mathf.Max(0f, _config.falloffCurve.Evaluate(norm));
     }
 
     private void HandleImpact(Collision collision)
@@ -163,12 +187,8 @@ public class ProjectileNew : NetworkBehaviour
     [ClientRpc(Delivery = RpcDelivery.Reliable)]
     private void ImpactClientRpc(Vector3 hitPoint, Vector3 hitNormal)
     {
-        // Client-side: snap to final location so the projectile doesn't "vanish early".
-        // (You can also spawn particles here.)
         if (!IsServer)
-        {
             transform.position = hitPoint;
-        }
     }
 
     private IEnumerator DespawnAfterDelay(float seconds)
@@ -183,7 +203,6 @@ public class ProjectileNew : NetworkBehaviour
 
         float r = Mathf.Max(0.05f, pointBlankOverlapRadius);
 
-        // If vehicleMask is set correctly, this resolves “spawn inside target” point-blank cases.
         var hits = Physics.OverlapSphere(transform.position, r, _config.vehicleMask, QueryTriggerInteraction.Ignore);
 
         foreach (var c in hits)
@@ -206,9 +225,14 @@ public class ProjectileNew : NetworkBehaviour
                     break;
             }
 
-            health.ServerApplyDamage(_config.damage, _instigatorClientId);
+            // NEW: weakspot multiplier (closest collider might be weakspot)
+            float mult = 1f;
+            var weak = c.GetComponentInParent<WeakSpotNew>();
+            if (weak != null) mult *= weak.damageMultiplier;
 
-            // Fake an impact immediately
+            int finalDamage = Mathf.RoundToInt(_config.damage * mult);
+            health.ServerApplyDamage(finalDamage, _instigatorClientId);
+
             _hasImpacted = true;
             if (_col != null) _col.enabled = false;
             _rb.linearVelocity = Vector3.zero;
