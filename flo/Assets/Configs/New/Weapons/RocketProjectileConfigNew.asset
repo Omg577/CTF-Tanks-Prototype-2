@@ -12,6 +12,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: d14f8439f6416eb49832b10034a4db91, type: 3}
   m_Name: RocketProjectileConfigNew
   m_EditorClassIdentifier: Assembly-CSharp::ProjectileConfigNew
+  projectilePrefab: {fileID: 3452709502409675297, guid: a579c7ed92b134e428dc965fbb5dfaf3, type: 3}
   speed: 22
   lifetime: 3
   damage: 30

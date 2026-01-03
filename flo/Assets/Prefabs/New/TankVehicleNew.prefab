@@ -593,8 +593,7 @@ MonoBehaviour:
   projectileConfigs:
   - {fileID: 11400000, guid: 5a3b9cfeb974b5f4da30db9429704639, type: 2}
   - {fileID: 11400000, guid: 9ce93ae4d087f15488d4f0f138f669e2, type: 2}
-  - {fileID: 11400000, guid: e8891fce0aab99243b09d4db6176f3d4, type: 2}
-  projectilePrefab: {fileID: 3452709502409675297, guid: a579c7ed92b134e428dc965fbb5dfaf3, type: 3}
+  - {fileID: 11400000, guid: 853f4547b9b1d874ca304358c7df1b68, type: 2}
   muzzle: {fileID: 9079838536934388944}
   allowWeaponSwitch: 1
 --- !u!1 &7852357846894779003

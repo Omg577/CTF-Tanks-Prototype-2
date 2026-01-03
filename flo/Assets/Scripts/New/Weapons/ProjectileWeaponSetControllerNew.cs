@@ -8,9 +8,6 @@ public class ProjectileWeaponSetControllerNew : NetworkBehaviour
     [Header("Weapons (1/2/3 keys switch index)")]
     [SerializeField] private ProjectileConfigNew[] projectileConfigs;
 
-    [Header("Projectile Prefab")]
-    [SerializeField] private NetworkObject projectilePrefab;
-
     [Header("Muzzle")]
     [SerializeField] private Transform muzzle;
 
@@ -24,7 +21,6 @@ public class ProjectileWeaponSetControllerNew : NetworkBehaviour
     {
         if (muzzle == null)
         {
-            // Try common names
             var found = transform.Find("Muzzle");
             if (found == null) found = transform.Find("muzzle");
             muzzle = found != null ? found : transform;
@@ -75,10 +71,14 @@ public class ProjectileWeaponSetControllerNew : NetworkBehaviour
         if (configIndex < 0 || configIndex >= projectileConfigs.Length) return;
 
         var config = projectileConfigs[configIndex];
-        if (config == null || projectilePrefab == null) return;
+        if (config == null) return;
 
-        // Server cooldown
+        // NEW: prefab comes from config
+        var prefab = config.projectilePrefab;
+        if (prefab == null) return;
+
         double now = NetworkManager.ServerTime.Time;
+
         if (_nextAllowedFireServerTime == null || _nextAllowedFireServerTime.Length < projectileConfigs.Length)
             _nextAllowedFireServerTime = new double[projectileConfigs.Length];
 
@@ -99,10 +99,9 @@ public class ProjectileWeaponSetControllerNew : NetworkBehaviour
         var tc = GetComponent<TeamComponentNew>();
         if (tc != null) team = tc.Team;
 
-        NetworkObject projNO = Instantiate(projectilePrefab, spawnPos, Quaternion.LookRotation(dir, Vector3.up));
+        NetworkObject projNO = Instantiate(prefab, spawnPos, Quaternion.LookRotation(dir, Vector3.up));
         projNO.Spawn(true);
 
-        // Ignore shooter collisions briefly (server)
         if (config.ignoreShooterCollisionSeconds > 0f)
             IgnoreCollisionsWithShooterTemporarily(projNO.gameObject, config.ignoreShooterCollisionSeconds);
 

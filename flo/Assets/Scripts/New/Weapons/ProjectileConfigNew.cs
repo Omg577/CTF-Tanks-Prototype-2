@@ -1,8 +1,13 @@
+using Unity.Netcode;
 using UnityEngine;
 
 [CreateAssetMenu(menuName = "New/Weapons/ProjectileConfigNew", fileName = "ProjectileConfigNew")]
 public class ProjectileConfigNew : ScriptableObject
 {
+    [Header("Prefab (per weapon)")]
+    [Tooltip("NetworkObject prefab spawned for this weapon. Must include ProjectileNew + NetworkObject.")]
+    public NetworkObject projectilePrefab;
+
     [Header("Flight")]
     [Min(0.1f)] public float speed = 25f;
     [Min(0.05f)] public float lifetime = 3.0f;

@@ -12,11 +12,14 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: d14f8439f6416eb49832b10034a4db91, type: 3}
   m_Name: SiniperProjectileConfigNew
   m_EditorClassIdentifier: Assembly-CSharp::ProjectileConfigNew
+  projectilePrefab: {fileID: 3452709502409675297, guid: 827e2876b4b7f3c478e5665e5ac92048, type: 3}
   speed: 45
   lifetime: 2.5
-  damage: 40
+  damage: 50
   friendlyFire: 0
   fireCooldownSeconds: 0.9
+  spawnForwardOffset: 0.6
+  ignoreShooterCollisionSeconds: 0.12
   useFalloff: 1
   falloffCurve:
     serializedVersion: 2
@@ -24,17 +27,26 @@ MonoBehaviour:
     - serializedVersion: 3
       time: 0
       value: 1
-      inSlope: -0.24900818
-      outSlope: -0.24900818
+      inSlope: 0
+      outSlope: 0
       tangentMode: 34
       weightedMode: 0
       inWeight: 0
       outWeight: 0.33333334
     - serializedVersion: 3
-      time: 1
-      value: 0.7509918
-      inSlope: -0.24900818
-      outSlope: -0.24900818
+      time: 0.5
+      value: 1
+      inSlope: 0
+      outSlope: 0
+      tangentMode: 0
+      weightedMode: 0
+      inWeight: 0.16057247
+      outWeight: 0.33333334
+    - serializedVersion: 3
+      time: 0.9958191
+      value: 0.750412
+      inSlope: -0.50338525
+      outSlope: -0.50338525
       tangentMode: 34
       weightedMode: 0
       inWeight: 0.33333334
@@ -43,6 +55,12 @@ MonoBehaviour:
     m_PostInfinity: 2
     m_RotationOrder: 4
   falloffMaxDistance: 60
+  isExplosive: 0
+  splashRadius: 4
+  splashEdgeMultiplier: 0.35
+  isRicochet: 0
+  maxBounces: 3
+  bounceSpeedMultiplier: 0.85
   hitMask:
     serializedVersion: 2
     m_Bits: 4294967295

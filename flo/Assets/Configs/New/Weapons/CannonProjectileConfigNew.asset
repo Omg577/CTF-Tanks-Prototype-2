@@ -12,11 +12,14 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: d14f8439f6416eb49832b10034a4db91, type: 3}
   m_Name: CannonProjectileConfigNew
   m_EditorClassIdentifier: Assembly-CSharp::ProjectileConfigNew
+  projectilePrefab: {fileID: 3452709502409675297, guid: a579c7ed92b134e428dc965fbb5dfaf3, type: 3}
   speed: 30
   lifetime: 2.5
   damage: 25
   friendlyFire: 0
   fireCooldownSeconds: 0.35
+  spawnForwardOffset: 0.6
+  ignoreShooterCollisionSeconds: 0.12
   useFalloff: 0
   falloffCurve:
     serializedVersion: 2
@@ -43,6 +46,12 @@ MonoBehaviour:
     m_PostInfinity: 2
     m_RotationOrder: 4
   falloffMaxDistance: 40
+  isExplosive: 0
+  splashRadius: 4
+  splashEdgeMultiplier: 0.35
+  isRicochet: 0
+  maxBounces: 3
+  bounceSpeedMultiplier: 0.85
   hitMask:
     serializedVersion: 2
     m_Bits: 4294967295
