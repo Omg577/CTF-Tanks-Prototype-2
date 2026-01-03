@@ -5,33 +5,39 @@ using UnityEngine.InputSystem;
 [RequireComponent(typeof(NetworkObject))]
 public class ProjectileWeaponSetControllerNew : NetworkBehaviour
 {
-    [Header("Configs (0=1 key, 1=2 key, 2=3 key...)")]
+    [Header("Weapons (1/2/3 keys switch index)")]
     [SerializeField] private ProjectileConfigNew[] projectileConfigs;
 
-    [Header("Prefab")]
+    [Header("Projectile Prefab")]
     [SerializeField] private NetworkObject projectilePrefab;
 
-    [Header("Spawn Point")]
+    [Header("Muzzle")]
     [SerializeField] private Transform muzzle;
-
-    [Header("Spawn Safety")]
-    [SerializeField] private float spawnForwardOffset = 0.6f;
-    [SerializeField] private float ignoreShooterCollisionSeconds = 0.12f;
 
     [Header("Input")]
     [SerializeField] private bool allowWeaponSwitch = true;
 
-    private int _activeIndex = 0;
-    private double _nextAllowedFireServerTime;
+    // Server-authoritative cooldown per weapon
+    private double[] _nextAllowedFireServerTime;
 
     public override void OnNetworkSpawn()
     {
         if (muzzle == null)
         {
+            // Try common names
             var found = transform.Find("Muzzle");
+            if (found == null) found = transform.Find("muzzle");
             muzzle = found != null ? found : transform;
         }
+
+        if (IsServer)
+        {
+            int n = projectileConfigs != null ? projectileConfigs.Length : 0;
+            _nextAllowedFireServerTime = new double[Mathf.Max(1, n)];
+        }
     }
+
+    private int _activeIndex;
 
     private void Update()
     {
@@ -44,11 +50,10 @@ public class ProjectileWeaponSetControllerNew : NetworkBehaviour
         if (health != null && health.IsDead) return;
 
         if (projectileConfigs == null || projectileConfigs.Length == 0) return;
-        if (projectilePrefab == null) return;
 
         var kb = Keyboard.current;
         var mouse = Mouse.current;
-        if (mouse == null || kb == null) return;
+        if (kb == null || mouse == null) return;
 
         if (allowWeaponSwitch)
         {
@@ -59,52 +64,53 @@ public class ProjectileWeaponSetControllerNew : NetworkBehaviour
 
         if (mouse.leftButton.wasPressedThisFrame)
         {
-            Vector3 forward = transform.forward;
-            forward.y = 0f;
-            if (forward.sqrMagnitude < 0.0001f) return;
-            forward.Normalize();
-
-            Vector3 muzzlePos = muzzle != null ? muzzle.position : transform.position;
-
-            RequestFireServerRpc(_activeIndex, muzzlePos, forward);
+            RequestFireServerRpc(_activeIndex);
         }
     }
 
     [Rpc(SendTo.Server, Delivery = RpcDelivery.Reliable, InvokePermission = RpcInvokePermission.Owner)]
-    private void RequestFireServerRpc(int configIndex, Vector3 spawnPos, Vector3 dir)
+    private void RequestFireServerRpc(int configIndex, RpcParams rpcParams = default)
     {
         if (projectileConfigs == null || projectileConfigs.Length == 0) return;
         if (configIndex < 0 || configIndex >= projectileConfigs.Length) return;
 
         var config = projectileConfigs[configIndex];
         if (config == null || projectilePrefab == null) return;
-        if (NetworkManager == null) return;
 
+        // Server cooldown
         double now = NetworkManager.ServerTime.Time;
-        if (now < _nextAllowedFireServerTime) return;
-        _nextAllowedFireServerTime = now + config.fireCooldownSeconds;
+        if (_nextAllowedFireServerTime == null || _nextAllowedFireServerTime.Length < projectileConfigs.Length)
+            _nextAllowedFireServerTime = new double[projectileConfigs.Length];
+
+        if (now < _nextAllowedFireServerTime[configIndex]) return;
+        _nextAllowedFireServerTime[configIndex] = now + config.fireCooldownSeconds;
+
+        // Server-authoritative muzzle + direction
+        Vector3 origin = (muzzle != null) ? muzzle.position : transform.position;
+
+        Vector3 dir = (muzzle != null) ? muzzle.forward : transform.forward;
+        dir.y = 0f;
+        if (dir.sqrMagnitude < 0.0001f) return;
+        dir.Normalize();
+
+        Vector3 spawnPos = origin + dir * Mathf.Max(0f, config.spawnForwardOffset);
 
         TeamIdNew team = TeamIdNew.None;
         var tc = GetComponent<TeamComponentNew>();
         if (tc != null) team = tc.Team;
 
-        dir.y = 0f;
-        if (dir.sqrMagnitude < 0.0001f) return;
-        dir.Normalize();
-
-        Vector3 spawnPosSafe = spawnPos + dir * Mathf.Max(0f, spawnForwardOffset);
-
-        NetworkObject projNO = Object.Instantiate(projectilePrefab, spawnPosSafe, Quaternion.LookRotation(dir, Vector3.up));
+        NetworkObject projNO = Instantiate(projectilePrefab, spawnPos, Quaternion.LookRotation(dir, Vector3.up));
         projNO.Spawn(true);
 
-        if (ignoreShooterCollisionSeconds > 0f)
-            IgnoreCollisionsWithShooterTemporarily(projNO.gameObject, ignoreShooterCollisionSeconds);
+        // Ignore shooter collisions briefly (server)
+        if (config.ignoreShooterCollisionSeconds > 0f)
+            IgnoreCollisionsWithShooterTemporarily(projNO.gameObject, config.ignoreShooterCollisionSeconds);
 
         var proj = projNO.GetComponent<ProjectileNew>();
         if (proj != null)
         {
             Vector3 vel = dir * config.speed;
-            proj.ServerInit(config, OwnerClientId, NetworkObjectId, team, vel);
+            proj.ServerInit(config, rpcParams.Receive.SenderClientId, NetworkObjectId, team, vel);
         }
     }
 

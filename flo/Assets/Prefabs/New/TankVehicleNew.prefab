@@ -454,7 +454,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: d5a57f767e5e46a458fc5d3c628d0cbb, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Unity.Netcode.Runtime::Unity.Netcode.NetworkObject
-  GlobalObjectIdHash: 2561788916
+  GlobalObjectIdHash: 3529496568
   InScenePlacedSourceGlobalObjectIdHash: 0
   DeferredDespawnTick: 0
   Ownership: 1
@@ -593,11 +593,9 @@ MonoBehaviour:
   projectileConfigs:
   - {fileID: 11400000, guid: 5a3b9cfeb974b5f4da30db9429704639, type: 2}
   - {fileID: 11400000, guid: 9ce93ae4d087f15488d4f0f138f669e2, type: 2}
-  - {fileID: 11400000, guid: 307521866c41d274cace75b30f52f43d, type: 2}
+  - {fileID: 11400000, guid: e8891fce0aab99243b09d4db6176f3d4, type: 2}
   projectilePrefab: {fileID: 3452709502409675297, guid: a579c7ed92b134e428dc965fbb5dfaf3, type: 3}
   muzzle: {fileID: 9079838536934388944}
-  spawnForwardOffset: 0.6
-  ignoreShooterCollisionSeconds: 0.12
   allowWeaponSwitch: 1
 --- !u!1 &7852357846894779003
 GameObject:

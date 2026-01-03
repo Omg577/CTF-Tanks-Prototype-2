@@ -4,26 +4,47 @@ using UnityEngine;
 public class ProjectileConfigNew : ScriptableObject
 {
     [Header("Flight")]
-    public float speed = 25f;
-    public float lifetime = 3.0f;
+    [Min(0.1f)] public float speed = 25f;
+    [Min(0.05f)] public float lifetime = 3.0f;
 
     [Header("Damage")]
-    public int damage = 25;
+    [Min(0)] public int damage = 25;
     public bool friendlyFire = false;
 
     [Header("Firing")]
-    public float fireCooldownSeconds = 0.25f;
+    [Min(0.01f)] public float fireCooldownSeconds = 0.25f;
+
+    [Tooltip("Spawn the projectile this far forward from the muzzle to avoid starting inside a collider.")]
+    [Min(0f)] public float spawnForwardOffset = 0.6f;
+
+    [Tooltip("Ignore collisions with the shooter for a short time after spawn.")]
+    [Min(0f)] public float ignoreShooterCollisionSeconds = 0.12f;
 
     [Header("Damage Falloff")]
     public bool useFalloff = false;
 
-    [Tooltip("x = normalized distance (0..1), y = damage multiplier. Example: (0,1) -> (1,0.5)")]
+    [Tooltip("x = normalized distance (0..1), y = damage multiplier.")]
     public AnimationCurve falloffCurve = AnimationCurve.Linear(0f, 1f, 1f, 1f);
 
-    [Tooltip("Distance (meters) where falloff reaches the end of the curve. Usually equals your gameplay range.")]
-    public float falloffMaxDistance = 40f;
+    [Min(0.1f)] public float falloffMaxDistance = 40f;
+
+    [Header("Archetype C: Explosive Splash")]
+    public bool isExplosive = false;
+
+    [Min(0f)] public float splashRadius = 4f;
+
+    [Range(0f, 1f)]
+    public float splashEdgeMultiplier = 0.35f;
+
+    [Header("Archetype D: Ricochet")]
+    public bool isRicochet = false;
+
+    [Min(0)] public int maxBounces = 3;
+
+    [Range(0.1f, 1f)]
+    public float bounceSpeedMultiplier = 0.85f;
 
     [Header("Collision")]
-    public LayerMask hitMask = ~0;          // things the projectile can collide with
-    public LayerMask vehicleMask = ~0;      // which layers count as "damageable vehicles"
+    public LayerMask hitMask = ~0;     // world + vehicles
+    public LayerMask vehicleMask = ~0; // vehicles only (for point-blank overlap and splash)
 }
