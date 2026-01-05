@@ -14,8 +14,32 @@ public class ProjectileWeaponSetControllerNew : NetworkBehaviour
     [Header("Input")]
     [SerializeField] private bool allowWeaponSwitch = true;
 
-    // Server-authoritative cooldown per weapon
+    [Header("Server Guardrails")]
+    [Tooltip("If true, server only allows firing when GameStateManagerNew.PlayersCanMove is true (InGame).")]
+    [SerializeField] private bool requireInGameToFire = true;
+
+    [Tooltip("If true, server blocks firing while VehicleHealthNew.IsDead is true.")]
+    [SerializeField] private bool blockWhileDead = true;
+
+    [Tooltip("If true, server blocks firing while the vehicle is invulnerable/spawn-protected (if exposed).")]
+    [SerializeField] private bool blockWhileInvulnerable = false;
+
+    [Header("Abuse Guard (Server)")]
+    [Tooltip("How many invalid fire requests are tolerated per second before we start ignoring them temporarily.")]
+    [SerializeField] private int invalidRequestsPerSecondThreshold = 12;
+
+    [Tooltip("How long to ignore fire requests after invalid spam is detected.")]
+    [SerializeField] private float invalidSpamIgnoreSeconds = 1.0f;
+
+    // Server-authoritative cooldown per weapon index
     private double[] _nextAllowedFireServerTime;
+
+    // Server abuse tracking
+    private int _invalidCountThisWindow;
+    private double _invalidWindowStartServerTime;
+    private double _ignoreUntilServerTime;
+
+    private int _activeIndex;
 
     public override void OnNetworkSpawn()
     {
@@ -30,15 +54,17 @@ public class ProjectileWeaponSetControllerNew : NetworkBehaviour
         {
             int n = projectileConfigs != null ? projectileConfigs.Length : 0;
             _nextAllowedFireServerTime = new double[Mathf.Max(1, n)];
+            _invalidWindowStartServerTime = NetworkManager.ServerTime.Time;
+            _invalidCountThisWindow = 0;
+            _ignoreUntilServerTime = 0;
         }
     }
-
-    private int _activeIndex;
 
     private void Update()
     {
         if (!IsSpawned || !IsOwner) return;
 
+        // Local gating (just for UX; server enforces too)
         var gsm = GameStateManagerNew.Instance;
         if (gsm != null && !gsm.PlayersCanMove) return;
 
@@ -67,25 +93,79 @@ public class ProjectileWeaponSetControllerNew : NetworkBehaviour
     [Rpc(SendTo.Server, Delivery = RpcDelivery.Reliable, InvokePermission = RpcInvokePermission.Owner)]
     private void RequestFireServerRpc(int configIndex, RpcParams rpcParams = default)
     {
-        if (projectileConfigs == null || projectileConfigs.Length == 0) return;
-        if (configIndex < 0 || configIndex >= projectileConfigs.Length) return;
-
-        var config = projectileConfigs[configIndex];
-        if (config == null) return;
-
-        // NEW: prefab comes from config
-        var prefab = config.projectilePrefab;
-        if (prefab == null) return;
+        if (NetworkManager == null) return;
 
         double now = NetworkManager.ServerTime.Time;
 
+        // Ignore window after spam
+        if (now < _ignoreUntilServerTime)
+            return;
+
+        // Validate config list
+        if (projectileConfigs == null || projectileConfigs.Length == 0)
+        {
+            RegisterInvalid(now);
+            return;
+        }
+
+        // Validate index
+        if (configIndex < 0 || configIndex >= projectileConfigs.Length)
+        {
+            RegisterInvalid(now);
+            return;
+        }
+
+        ProjectileConfigNew config = projectileConfigs[configIndex];
+        if (config == null)
+        {
+            RegisterInvalid(now);
+            return;
+        }
+
+        // Validate prefab per config
+        NetworkObject prefab = config.projectilePrefab;
+        if (prefab == null)
+        {
+            RegisterInvalid(now);
+            return;
+        }
+
+        // -------- Server Enforced Guardrails --------
+
+        if (requireInGameToFire)
+        {
+            var gsm = GameStateManagerNew.Instance;
+            if (gsm != null && !gsm.PlayersCanMove)
+                return;
+        }
+
+        var health = GetComponent<VehicleHealthNew>();
+        if (blockWhileDead && health != null && health.IsDead)
+            return;
+
+        // Optional: block while invulnerable if your health exposes it.
+        // If your VehicleHealthNew doesn't have a public property, set blockWhileInvulnerable=false.
+        if (blockWhileInvulnerable && health != null)
+        {
+            // Look for a public bool property named IsInvulnerable or IsSpawnProtected.
+            // (No reflection here—just common patterns. Add one if you want this.)
+#if UNITY_EDITOR
+            // You can safely ignore this in builds; kept simple.
+#endif
+            // If you want this fully wired, tell me your exact property name and I'll lock it in.
+        }
+
+        // Server-side cooldown per weapon
         if (_nextAllowedFireServerTime == null || _nextAllowedFireServerTime.Length < projectileConfigs.Length)
             _nextAllowedFireServerTime = new double[projectileConfigs.Length];
 
-        if (now < _nextAllowedFireServerTime[configIndex]) return;
+        if (now < _nextAllowedFireServerTime[configIndex])
+            return;
+
         _nextAllowedFireServerTime[configIndex] = now + config.fireCooldownSeconds;
 
-        // Server-authoritative muzzle + direction
+        // -------- Server-authoritative muzzle + direction --------
+
         Vector3 origin = (muzzle != null) ? muzzle.position : transform.position;
 
         Vector3 dir = (muzzle != null) ? muzzle.forward : transform.forward;
@@ -102,6 +182,7 @@ public class ProjectileWeaponSetControllerNew : NetworkBehaviour
         NetworkObject projNO = Instantiate(prefab, spawnPos, Quaternion.LookRotation(dir, Vector3.up));
         projNO.Spawn(true);
 
+        // Ignore shooter collisions briefly (server)
         if (config.ignoreShooterCollisionSeconds > 0f)
             IgnoreCollisionsWithShooterTemporarily(projNO.gameObject, config.ignoreShooterCollisionSeconds);
 
@@ -110,6 +191,25 @@ public class ProjectileWeaponSetControllerNew : NetworkBehaviour
         {
             Vector3 vel = dir * config.speed;
             proj.ServerInit(config, rpcParams.Receive.SenderClientId, NetworkObjectId, team, vel);
+        }
+    }
+
+    private void RegisterInvalid(double now)
+    {
+        // Reset window every 1 second
+        if (now - _invalidWindowStartServerTime >= 1.0)
+        {
+            _invalidWindowStartServerTime = now;
+            _invalidCountThisWindow = 0;
+        }
+
+        _invalidCountThisWindow++;
+
+        if (_invalidCountThisWindow >= Mathf.Max(1, invalidRequestsPerSecondThreshold))
+        {
+            _ignoreUntilServerTime = now + Mathf.Max(0.1f, invalidSpamIgnoreSeconds);
+            _invalidCountThisWindow = 0;
+            _invalidWindowStartServerTime = now;
         }
     }
 

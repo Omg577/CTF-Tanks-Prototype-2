@@ -19,6 +19,7 @@ public class ProjectileNew : NetworkBehaviour
 
     private Rigidbody _rb;
     private Collider _col;
+    private ProjectileVfxNew _vfx;
 
     private ulong _instigatorClientId;
     private ulong _instigatorVehicleNetObjId;
@@ -39,6 +40,7 @@ public class ProjectileNew : NetworkBehaviour
     {
         _rb = GetComponent<Rigidbody>();
         _col = GetComponent<Collider>();
+        _vfx = GetComponent<ProjectileVfxNew>(); // optional
     }
 
     public override void OnNetworkSpawn()
@@ -76,7 +78,6 @@ public class ProjectileNew : NetworkBehaviour
         _rb.linearVelocity = velocity;
         _rb.angularVelocity = Vector3.zero;
 
-        // Point-blank overlap: fixes “starts inside enemy”
         TryPointBlankOverlapHit();
     }
 
@@ -105,7 +106,6 @@ public class ProjectileNew : NetworkBehaviour
         if (hitNO != null && hitNO.NetworkObjectId == _instigatorVehicleNetObjId)
             return;
 
-        // Layer gating for non-vehicles
         int otherLayerBit = 1 << collision.collider.gameObject.layer;
 
         // Vehicle hit?
@@ -117,28 +117,27 @@ public class ProjectileNew : NetworkBehaviour
                 var tc = hitNO.GetComponent<TeamComponentNew>();
                 if (tc != null && tc.Team == _instigatorTeam)
                 {
-                    HandleImpact(collision, explode: _config.isExplosive);
+                    HandleImpact(collision);
                     return;
                 }
             }
 
-            // Weakspot multiplier
             float mult = 1f;
+
             var weak = collision.collider.GetComponentInParent<WeakSpotNew>();
             if (weak != null) mult *= weak.damageMultiplier;
 
-            // Falloff multiplier (based on distance traveled)
             Vector3 hitPointTmp = collision.contactCount > 0 ? collision.GetContact(0).point : transform.position;
             mult *= DamageFalloffMultiplier(Vector3.Distance(_spawnPos, hitPointTmp));
 
             int finalDamage = Mathf.RoundToInt(_config.damage * mult);
             health.ServerApplyDamage(finalDamage, _instigatorClientId);
 
-            // Rocket splash
+            // Rocket splash on vehicle hit
             if (_config.isExplosive && _config.splashRadius > 0f)
                 ApplySplash(hitPointTmp, directHitNetObjId: hitNO.NetworkObjectId);
 
-            HandleImpact(collision, explode: false); // already did splash; just impact+despawn
+            HandleImpact(collision);
             return;
         }
 
@@ -146,12 +145,12 @@ public class ProjectileNew : NetworkBehaviour
         if ((_config.hitMask.value & otherLayerBit) == 0)
             return;
 
-        // If explosive: explode on world hit too
+        // Explosive: splash on world hit too
         if (_config.isExplosive)
         {
             Vector3 hitPoint = collision.contactCount > 0 ? collision.GetContact(0).point : transform.position;
             ApplySplash(hitPoint, directHitNetObjId: 0);
-            HandleImpact(collision, explode: false);
+            HandleImpact(collision);
             return;
         }
 
@@ -162,37 +161,40 @@ public class ProjectileNew : NetworkBehaviour
             return;
         }
 
-        // Otherwise: normal impact/despawn
-        HandleImpact(collision, explode: false);
+        // Otherwise: impact/despawn
+        HandleImpact(collision);
     }
 
     private void Bounce(Collision collision)
     {
-        // Compute bounce reflection using first contact normal
         ContactPoint cp = collision.contactCount > 0 ? collision.GetContact(0) : default;
         Vector3 n = (collision.contactCount > 0) ? cp.normal : -transform.forward;
 
         Vector3 v = _rb.linearVelocity;
-        if (v.sqrMagnitude < 0.001f) v = transform.forward * (_config != null ? _config.speed : 10f);
+        if (v.sqrMagnitude < 0.001f)
+            v = transform.forward * (_config != null ? _config.speed : 10f);
 
         Vector3 reflected = Vector3.Reflect(v, n);
-
-        // Keep planar if you want (optional): reflected.y = 0;
-        // reflected = reflected.normalized * v.magnitude;
 
         float newSpeed = v.magnitude * Mathf.Clamp(_config.bounceSpeedMultiplier, 0.1f, 1f);
         reflected = reflected.normalized * newSpeed;
 
         _bouncesLeft--;
 
-        // Separate slightly so we don't re-collide instantly
+        Vector3 bouncePoint = transform.position;
         if (collision.contactCount > 0)
+        {
+            bouncePoint = cp.point;
             transform.position = cp.point + n * bounceSeparation;
+        }
 
         _rb.linearVelocity = reflected;
         _rb.angularVelocity = Vector3.zero;
 
-        // Ignore that collider briefly to prevent “sticky” bounce
+        // Spawn bounce sparks for everyone (clients + host)
+        BounceClientRpc(bouncePoint, n);
+
+        // Prevent sticky immediate re-collide
         StartCoroutine(TemporaryIgnore(collision.collider, bounceIgnoreSeconds));
     }
 
@@ -228,7 +230,7 @@ public class ProjectileNew : NetworkBehaviour
             var no = c.GetComponentInParent<NetworkObject>();
             if (no == null) continue;
 
-            // Optional: avoid double-damaging the direct-hit vehicle (keeps rockets sane)
+            // Avoid double-damaging direct-hit vehicle
             if (directHitNetObjId != 0 && no.NetworkObjectId == directHitNetObjId)
                 continue;
 
@@ -256,7 +258,7 @@ public class ProjectileNew : NetworkBehaviour
         }
     }
 
-    private void HandleImpact(Collision collision, bool explode)
+    private void HandleImpact(Collision collision)
     {
         if (_hasImpacted) return;
         _hasImpacted = true;
@@ -278,8 +280,30 @@ public class ProjectileNew : NetworkBehaviour
     [ClientRpc(Delivery = RpcDelivery.Reliable)]
     private void ImpactClientRpc(Vector3 hitPoint, Vector3 hitNormal)
     {
+        // Dedicated server has no reason to spawn VFX
+        if (!IsClient) return;
+
+        // Ensure projectile visually reaches hit point on clients
         if (!IsServer)
             transform.position = hitPoint;
+
+        if (_vfx != null && _vfx.impactVfxPrefab != null)
+        {
+            var go = Instantiate(_vfx.impactVfxPrefab, hitPoint, Quaternion.LookRotation(hitNormal));
+            if (_vfx.impactVfxLifetime > 0f) Destroy(go, _vfx.impactVfxLifetime);
+        }
+    }
+
+    [ClientRpc(Delivery = RpcDelivery.Unreliable)]
+    private void BounceClientRpc(Vector3 point, Vector3 normal)
+    {
+        if (!IsClient) return;
+
+        if (_vfx != null && _vfx.bounceVfxPrefab != null)
+        {
+            var go = Instantiate(_vfx.bounceVfxPrefab, point, Quaternion.LookRotation(normal));
+            if (_vfx.bounceVfxLifetime > 0f) Destroy(go, _vfx.bounceVfxLifetime);
+        }
     }
 
     private IEnumerator DespawnAfterDelay(float seconds)
