@@ -1,0 +1,20 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 8ac6b5d85fb5c4648a48dae78dd85fd1, type: 3}
+  m_Name: 0
+  m_EditorClassIdentifier: Assembly-CSharp::TankDefinitionNew
+  tankId: 0
+  displayName: Sniper
+  description: 
+  tankPrefab: {fileID: 3178835502326923086, guid: 2317e9e42446c46458528f0972151968, type: 3}
+  icon: {fileID: 0}
+  previewModelPrefab: {fileID: 0}

@@ -1,0 +1,61 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: d14f8439f6416eb49832b10034a4db91, type: 3}
+  m_Name: CannonProjectileConfigNew super strong
+  m_EditorClassIdentifier: Assembly-CSharp::ProjectileConfigNew
+  projectilePrefab: {fileID: 3452709502409675297, guid: a579c7ed92b134e428dc965fbb5dfaf3, type: 3}
+  speed: 30
+  lifetime: 2.5
+  damage: 35
+  friendlyFire: 0
+  fireCooldownSeconds: 0.2
+  spawnForwardOffset: 0.6
+  ignoreShooterCollisionSeconds: 0.12
+  useFalloff: 0
+  falloffCurve:
+    serializedVersion: 2
+    m_Curve:
+    - serializedVersion: 3
+      time: 0
+      value: 1
+      inSlope: 0
+      outSlope: 0
+      tangentMode: 0
+      weightedMode: 0
+      inWeight: 0
+      outWeight: 0
+    - serializedVersion: 3
+      time: 1
+      value: 1
+      inSlope: 0
+      outSlope: 0
+      tangentMode: 0
+      weightedMode: 0
+      inWeight: 0
+      outWeight: 0
+    m_PreInfinity: 2
+    m_PostInfinity: 2
+    m_RotationOrder: 4
+  falloffMaxDistance: 40
+  isExplosive: 0
+  splashRadius: 4
+  splashEdgeMultiplier: 0.35
+  blockedSplashMultiplier: 0.15
+  isRicochet: 0
+  maxBounces: 3
+  bounceSpeedMultiplier: 0.85
+  hitMask:
+    serializedVersion: 2
+    m_Bits: 4294967295
+  vehicleMask:
+    serializedVersion: 2
+    m_Bits: 64

@@ -1,7 +1,8 @@
 public enum MatchStateNew : byte
 {
     Lobby = 0,
-    Countdown = 1,
-    InGame = 2,
-    GameOver = 3
+    TankSelect = 1,
+    Countdown = 2,
+    InGame = 3,
+    GameOver = 4
 }

@@ -17,6 +17,13 @@ public class ProjectileNew : NetworkBehaviour
     [SerializeField] private float bounceSeparation = 0.02f;
     [SerializeField] private float bounceIgnoreSeconds = 0.05f;
 
+    [Header("Splash LOS")]
+    [Tooltip("Small offset from explosion center to avoid raycast starting inside surfaces.")]
+    [SerializeField] private float splashLosStartOffset = 0.05f;
+
+    [Tooltip("If true, splash only applies if the target is visible from the explosion point (no walls in between).")]
+    [SerializeField] private bool requireLineOfSightForSplash = true;
+
     private Rigidbody _rb;
     private Collider _col;
     private ProjectileVfxNew _vfx;
@@ -133,7 +140,7 @@ public class ProjectileNew : NetworkBehaviour
             int finalDamage = Mathf.RoundToInt(_config.damage * mult);
             health.ServerApplyDamage(finalDamage, _instigatorClientId);
 
-            // Rocket splash on vehicle hit
+            // Rocket splash on vehicle hit (avoid double-damage direct hit)
             if (_config.isExplosive && _config.splashRadius > 0f)
                 ApplySplash(hitPointTmp, directHitNetObjId: hitNO.NetworkObjectId);
 
@@ -191,7 +198,7 @@ public class ProjectileNew : NetworkBehaviour
         _rb.linearVelocity = reflected;
         _rb.angularVelocity = Vector3.zero;
 
-        // Spawn bounce sparks for everyone (clients + host)
+        // Bounce sparks for everyone
         BounceClientRpc(bouncePoint, n);
 
         // Prevent sticky immediate re-collide
@@ -248,15 +255,87 @@ public class ProjectileNew : NetworkBehaviour
                     continue;
             }
 
-            float d = Vector3.Distance(center, c.ClosestPoint(center));
+            Vector3 targetPoint = c.ClosestPoint(center);
+
+            // Base splash falloff by radius
+            float d = Vector3.Distance(center, targetPoint);
             float t = Mathf.Clamp01(d / Mathf.Max(0.001f, r));
             float splashMult = Mathf.Lerp(1f, Mathf.Clamp01(_config.splashEdgeMultiplier), t);
+
+            // LOS modifier: if blocked, reduce splash
+            if (requireLineOfSightForSplash)
+            {
+                bool hasLos = HasLineOfSight(center, targetPoint, no);
+                if (!hasLos)
+                {
+                    float blocked = Mathf.Clamp01(_config.blockedSplashMultiplier);
+
+                    // If you set blocked=0, it's identical to "no splash through walls"
+                    if (blocked <= 0f)
+                        continue;
+
+                    splashMult *= blocked;
+                }
+            }
 
             int splashDamage = Mathf.RoundToInt(_config.damage * splashMult);
             if (splashDamage > 0)
                 health.ServerApplyDamage(splashDamage, _instigatorClientId);
         }
     }
+
+    /// <summary>
+    /// Returns true if the first thing hit from center->targetPoint belongs to targetNetObj (or nothing blocks the ray).
+    /// Uses config.hitMask so "walls" are whatever your projectile normally collides with.
+    /// </summary>
+    private bool HasLineOfSight(Vector3 center, Vector3 targetPoint, NetworkObject targetNetObj)
+    {
+        Vector3 toTarget = targetPoint - center;
+        float dist = toTarget.magnitude;
+        if (dist <= 0.01f) return true;
+
+        Vector3 dir = toTarget / dist;
+
+        Vector3 start = center + dir * Mathf.Max(0f, splashLosStartOffset);
+        float rayDist = Mathf.Max(0f, dist - splashLosStartOffset);
+
+        RaycastHit[] hits = Physics.RaycastAll(
+            start,
+            dir,
+            rayDist,
+            _config != null ? _config.hitMask : ~0,
+            QueryTriggerInteraction.Ignore
+        );
+
+        if (hits == null || hits.Length == 0)
+            return true;
+
+        int best = -1;
+        float bestDist = float.PositiveInfinity;
+
+        for (int i = 0; i < hits.Length; i++)
+        {
+            var h = hits[i];
+            if (h.collider == null) continue;
+
+            // Ignore the projectile itself
+            var hitNO = h.collider.GetComponentInParent<NetworkObject>();
+            if (hitNO != null && hitNO.NetworkObjectId == NetworkObjectId)
+                continue;
+
+            if (h.distance < bestDist)
+            {
+                bestDist = h.distance;
+                best = i;
+            }
+        }
+
+        if (best < 0) return true;
+
+        var nearestNO = hits[best].collider.GetComponentInParent<NetworkObject>();
+        return nearestNO != null && targetNetObj != null && nearestNO.NetworkObjectId == targetNetObj.NetworkObjectId;
+    }
+
 
     private void HandleImpact(Collision collision)
     {
@@ -280,10 +359,8 @@ public class ProjectileNew : NetworkBehaviour
     [ClientRpc(Delivery = RpcDelivery.Reliable)]
     private void ImpactClientRpc(Vector3 hitPoint, Vector3 hitNormal)
     {
-        // Dedicated server has no reason to spawn VFX
         if (!IsClient) return;
 
-        // Ensure projectile visually reaches hit point on clients
         if (!IsServer)
             transform.position = hitPoint;
 

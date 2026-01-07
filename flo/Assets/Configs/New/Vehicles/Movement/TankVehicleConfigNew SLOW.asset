@@ -1,0 +1,17 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: bbe4cb42a249e544fbddbaea01c6c997, type: 3}
+  m_Name: TankVehicleConfigNew SLOW
+  m_EditorClassIdentifier: Assembly-CSharp::VehicleConfigNew
+  displayName: Vehicle
+  movementModel: {fileID: 11400000, guid: 4ed05a1bc5b6dfc4ab6e5008c12140bb, type: 2}
+  maxHealth: 125

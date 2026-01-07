@@ -91,6 +91,56 @@ public class VehicleSpawnerNew : MonoBehaviour
         Debug.Log($"[VehicleSpawnerNew] Spawned clientId={clientId}, team={team}");
     }
 
+    // --------- NEW: Draft integration ----------
+    public void ServerReplaceVehicleForClient(ulong clientId, NetworkObject newVehiclePrefab)
+    {
+        if (NetworkManager.Singleton == null || !NetworkManager.Singleton.IsServer) return;
+        if (newVehiclePrefab == null) return;
+
+        // If we don't have a vehicle, just spawn
+        if (!_spawned.TryGetValue(clientId, out var oldVehicle) || oldVehicle == null)
+        {
+            // fallback: spawn using new prefab
+            TeamIdNew t = ResolveTeam(clientId);
+            Transform sp0 = PickSpawn(clientId, t);
+
+            NetworkObject v0 = Instantiate(newVehiclePrefab, sp0.position, sp0.rotation);
+            v0.SpawnWithOwnership(clientId, destroyWithScene: true);
+
+            var tc0 = v0.GetComponent<TeamComponentNew>();
+            if (tc0 != null) tc0.ServerSetTeam(t);
+
+            _spawned[clientId] = v0;
+            return;
+        }
+
+        // Preserve team if set
+        TeamIdNew team = ResolveTeam(clientId);
+        var oldTeamComp = oldVehicle.GetComponent<TeamComponentNew>();
+        if (oldTeamComp != null && oldTeamComp.Team != TeamIdNew.None)
+            team = oldTeamComp.Team;
+
+        // We'll spawn at current pose (countdown will teleport everyone anyway)
+        Vector3 pos = oldVehicle.transform.position;
+        Quaternion rot = oldVehicle.transform.rotation;
+
+        // Despawn old
+        if (oldVehicle.IsSpawned)
+            oldVehicle.Despawn(true);
+        Destroy(oldVehicle.gameObject);
+
+        // Spawn new
+        NetworkObject newVehicle = Instantiate(newVehiclePrefab, pos, rot);
+        newVehicle.SpawnWithOwnership(clientId, destroyWithScene: true);
+
+        var teamComp = newVehicle.GetComponent<TeamComponentNew>();
+        if (teamComp != null) teamComp.ServerSetTeam(team);
+
+        _spawned[clientId] = newVehicle;
+
+        Debug.Log($"[VehicleSpawnerNew] Replaced vehicle for clientId={clientId} with {newVehiclePrefab.name}");
+    }
+
     // --------- Round reset helpers ----------
     public void ServerTeleportAllToSpawns()
     {
@@ -113,7 +163,6 @@ public class VehicleSpawnerNew : MonoBehaviour
         }
     }
 
-    // NEW: respawn manager uses this
     public void ServerTeleportSingleToSpawn(NetworkObject vehicle, ulong clientId, TeamIdNew team)
     {
         if (NetworkManager.Singleton == null || !NetworkManager.Singleton.IsServer)

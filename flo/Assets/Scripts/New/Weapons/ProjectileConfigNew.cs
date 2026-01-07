@@ -41,6 +41,10 @@ public class ProjectileConfigNew : ScriptableObject
     [Range(0f, 1f)]
     public float splashEdgeMultiplier = 0.35f;
 
+    [Tooltip("If LOS is blocked by world geometry, multiply splash damage by this value. (0 = no damage through cover)")]
+    [Range(0f, 1f)]
+    public float blockedSplashMultiplier = 0.15f;
+
     [Header("Archetype D: Ricochet")]
     public bool isRicochet = false;
 
