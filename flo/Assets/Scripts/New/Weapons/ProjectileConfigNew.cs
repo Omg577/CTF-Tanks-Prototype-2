@@ -56,4 +56,17 @@ public class ProjectileConfigNew : ScriptableObject
     [Header("Collision")]
     public LayerMask hitMask = ~0;     // world + vehicles
     public LayerMask vehicleMask = ~0; // vehicles only (for point-blank overlap and splash)
+
+    // -----------------------------
+    // NEW: Toon VFX (Networked)
+    // -----------------------------
+    [Header("VFX - Muzzle Flash (Networked Cosmetic)")]
+    [Tooltip("Prefab spawned locally on each client via RPC. Should NOT be a NetworkObject.")]
+    public GameObject muzzleFlashPrefab;
+
+    [Tooltip("Offset applied in muzzle 'shot rotation' space (yaw-only).")]
+    public Vector3 muzzleFlashLocalOffset = Vector3.zero;
+
+    [Tooltip("Fallback destroy time if the prefab doesn't self-destroy.")]
+    [Min(0f)] public float muzzleFlashDestroySeconds = 0.75f;
 }

@@ -59,3 +59,6 @@ MonoBehaviour:
   vehicleMask:
     serializedVersion: 2
     m_Bits: 64
+  muzzleFlashPrefab: {fileID: 8240423218298244372, guid: 7f1610678abafa042962cd43a2269d00, type: 3}
+  muzzleFlashLocalOffset: {x: 0, y: 0, z: -1}
+  muzzleFlashDestroySeconds: 0.75

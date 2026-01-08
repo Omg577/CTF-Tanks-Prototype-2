@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using TMPro;
 using Unity.Netcode;
 using UnityEngine;
 using UnityEngine.UI;
@@ -9,50 +10,28 @@ public class TankSelectUINew : MonoBehaviour
     [SerializeField] private TankDraftManagerNew draft;
     [SerializeField] private GameStateManagerNew gsm;
 
-    [Header("Root")]
+    [Header("Root Panel")]
     [SerializeField] private GameObject rootPanel;
 
-    [Header("Options List")]
+    [Header("Options")]
     [SerializeField] private Transform optionsParent;
     [SerializeField] private TankSelectOptionButtonNew optionButtonPrefab;
-
-    [Header("Tank Options (Assign same 6+ TankDefinitionNew assets here)")]
     [SerializeField] private TankDefinitionNew[] uiTankOptions;
 
-    [Header("Preview UI")]
-    [SerializeField] private Image previewIcon;
-    [SerializeField] private Text previewName;
-    [SerializeField] private Text previewDesc;
-
-    [Header("Preview Model (Optional)")]
-    [SerializeField] private Transform previewModelAnchor;
-    [SerializeField] private float previewSpinDegPerSec = 30f;
-
-    [Header("Controls")]
+    [Header("Buttons")]
     [SerializeField] private Button lockButton;
     [SerializeField] private Button unlockButton;
 
-    [Header("Status")]
-    [SerializeField] private Text timerText;
-    [SerializeField] private Text statusText;
+    [Header("Text")]
+    [SerializeField] private TMP_Text timerText;
+    [SerializeField] private TMP_Text statusText;
+    [SerializeField] private TMP_Text debugText; // optional
 
-    // Optional debug line
-    [Header("Debug (Optional)")]
-    [SerializeField] private Text debugText;
-
-    private readonly List<TankSelectOptionButtonNew> _spawnedButtons = new();
+    private readonly Dictionary<int, TankSelectOptionButtonNew> _btnByTankId = new();
     private int _selectedTankId = -1;
-    private GameObject _previewModelInstance;
 
     private void Awake()
     {
-        // Don’t force-hide if rootPanel is null (avoid confusion)
-        if (rootPanel != null)
-            rootPanel.SetActive(false);
-
-        if (statusText != null)
-            statusText.text = "";
-
         if (lockButton != null) lockButton.onClick.AddListener(OnClickLock);
         if (unlockButton != null) unlockButton.onClick.AddListener(OnClickUnlock);
 
@@ -68,6 +47,7 @@ public class TankSelectUINew : MonoBehaviour
     {
         ReacquireRefs();
         BuildOptions();
+        if (rootPanel != null) rootPanel.SetActive(false);
     }
 
     private void Update()
@@ -75,22 +55,23 @@ public class TankSelectUINew : MonoBehaviour
         ReacquireRefs();
 
         bool inTankSelect = (gsm != null && gsm.State == MatchStateNew.TankSelect);
+
         if (rootPanel != null && rootPanel.activeSelf != inTankSelect)
             rootPanel.SetActive(inTankSelect);
 
         if (debugText != null)
         {
             string s = gsm != null ? gsm.State.ToString() : "gsm=null";
-            string d = draft != null ? "draft=ok" : "draft=null";
+            string d = draft != null ? $"draftPicks={draft.Picks.Count}" : "draft=null";
             debugText.text = $"State={s} | {d}";
         }
 
         if (!inTankSelect) return;
 
         UpdateTimer();
-        UpdateButtonsInteractable();
+        UpdateButtonStates();
         UpdateLockUnlockButtons();
-        SpinPreviewModel();
+        UpdateStatusLine();
     }
 
     private void ReacquireRefs()
@@ -104,13 +85,9 @@ public class TankSelectUINew : MonoBehaviour
     private void BuildOptions()
     {
         if (optionsParent == null || optionButtonPrefab == null) return;
-        if (_spawnedButtons.Count > 0) return;
+        if (_btnByTankId.Count > 0) return;
 
-        if (uiTankOptions == null || uiTankOptions.Length == 0)
-        {
-            if (statusText != null) statusText.text = "Assign uiTankOptions (6+ TankDefinitionNew).";
-            return;
-        }
+        if (uiTankOptions == null || uiTankOptions.Length == 0) return;
 
         foreach (var def in uiTankOptions)
         {
@@ -118,93 +95,54 @@ public class TankSelectUINew : MonoBehaviour
 
             var btn = Instantiate(optionButtonPrefab, optionsParent);
             btn.Bind(def.tankId, def.icon, def.displayName, OnSelectTank);
-            _spawnedButtons.Add(btn);
+            _btnByTankId[def.tankId] = btn;
         }
     }
 
     private void OnSelectTank(int tankId)
     {
         _selectedTankId = tankId;
-
-        var def = FindUiDef(tankId);
-        if (def == null) return;
-
-        if (previewIcon != null) previewIcon.sprite = def.icon;
-        if (previewName != null) previewName.text = def.displayName;
-        if (previewDesc != null) previewDesc.text = def.description;
-
-        SpawnPreviewModel(def);
-    }
-
-    private TankDefinitionNew FindUiDef(int tankId)
-    {
-        if (uiTankOptions == null) return null;
-        foreach (var d in uiTankOptions)
-            if (d != null && d.tankId == tankId)
-                return d;
-        return null;
-    }
-
-    private void SpawnPreviewModel(TankDefinitionNew def)
-    {
-        if (previewModelAnchor == null) return;
-
-        if (_previewModelInstance != null)
-            Destroy(_previewModelInstance);
-
-        if (def.previewModelPrefab == null) return;
-
-        _previewModelInstance = Instantiate(def.previewModelPrefab, previewModelAnchor);
-        _previewModelInstance.transform.localPosition = Vector3.zero;
-        _previewModelInstance.transform.localRotation = Quaternion.identity;
-        _previewModelInstance.transform.localScale = Vector3.one;
-    }
-
-    private void SpinPreviewModel()
-    {
-        if (_previewModelInstance == null) return;
-        _previewModelInstance.transform.Rotate(0f, previewSpinDegPerSec * Time.deltaTime, 0f, Space.Self);
     }
 
     private void UpdateTimer()
     {
         if (timerText == null || gsm == null) return;
-        float rem = gsm.GetTankSelectRemaining();
-        timerText.text = $"Tank Select: {rem:0.0}s";
+        timerText.text = $"Tank Select: {gsm.GetTankSelectRemaining():0.0}s";
     }
 
-    private void UpdateButtonsInteractable()
+    private void UpdateButtonStates()
     {
-        if (draft == null || uiTankOptions == null) return;
-        if (NetworkManager.Singleton == null) return;
+        if (draft == null || NetworkManager.Singleton == null) return;
 
         ulong localId = NetworkManager.Singleton.LocalClientId;
+        if (!draft.TryGetPick(localId, out var me)) return;
 
-        if (!draft.TryGetPick(localId, out var localPick))
-            return;
-
-        TeamIdNew myTeam = localPick.Team;
-
-        HashSet<int> lockedByMyTeam = new();
+        // Collect tanks locked by MY team (excluding me)
+        HashSet<int> takenByMyTeam = new();
         for (int i = 0; i < draft.Picks.Count; i++)
         {
             var p = draft.Picks[i];
-            if (p.Team == myTeam && p.Locked && p.TankId >= 0)
-                lockedByMyTeam.Add(p.TankId);
+            if (!p.Locked) continue;
+            if (p.Team != me.Team) continue;
+            if (p.ClientId == localId) continue;
+            if (p.TankId >= 0) takenByMyTeam.Add(p.TankId);
         }
 
-        // Buttons align to uiTankOptions order
-        for (int i = 0; i < _spawnedButtons.Count; i++)
+        foreach (var kvp in _btnByTankId)
         {
-            if (i >= uiTankOptions.Length) continue;
-            var def = uiTankOptions[i];
-            if (def == null) continue;
+            int tankId = kvp.Key;
+            var btn = kvp.Value;
+            if (btn == null) continue;
 
-            bool taken = lockedByMyTeam.Contains(def.tankId);
+            bool selected = (_selectedTankId == tankId);
 
-            // If taken by team, allow only if it’s my own locked pick
-            bool interactable = !taken || (localPick.Locked && localPick.TankId == def.tankId);
-            _spawnedButtons[i].SetInteractable(interactable);
+            bool lockedByYou = (me.Locked && me.TankId == tankId);
+            bool taken = takenByMyTeam.Contains(tankId);
+
+            // Disable if taken by teammate, unless it’s your locked pick
+            bool interactable = !taken || lockedByYou;
+
+            btn.SetState(interactable, selected, takenByTeam: taken, lockedByYou: lockedByYou);
         }
     }
 
@@ -213,13 +151,39 @@ public class TankSelectUINew : MonoBehaviour
         if (draft == null || NetworkManager.Singleton == null) return;
 
         ulong localId = NetworkManager.Singleton.LocalClientId;
-        bool hasPick = draft.TryGetPick(localId, out var pick);
+        bool hasPick = draft.TryGetPick(localId, out var me);
 
-        bool canLock = (_selectedTankId >= 0) && hasPick && !pick.Locked;
-        bool canUnlock = hasPick && pick.Locked;
+        bool canLock = (_selectedTankId >= 0) && hasPick && !me.Locked;
+        bool canUnlock = hasPick && me.Locked;
 
         if (lockButton != null) lockButton.interactable = canLock;
         if (unlockButton != null) unlockButton.interactable = canUnlock;
+    }
+
+    private void UpdateStatusLine()
+    {
+        if (statusText == null || draft == null || NetworkManager.Singleton == null) return;
+
+        ulong localId = NetworkManager.Singleton.LocalClientId;
+        if (!draft.TryGetPick(localId, out var me)) return;
+
+        if (!me.Locked)
+        {
+            statusText.text = "Pick a tank and press Lock.";
+            return;
+        }
+
+        string name = FindTankName(me.TankId);
+        statusText.text = $"Locked in: {name}";
+    }
+
+    private string FindTankName(int tankId)
+    {
+        if (uiTankOptions == null) return tankId.ToString();
+        foreach (var d in uiTankOptions)
+            if (d != null && d.tankId == tankId)
+                return d.displayName;
+        return tankId.ToString();
     }
 
     private void OnClickLock()
@@ -243,7 +207,7 @@ public class TankSelectUINew : MonoBehaviour
         {
             case TankDraftFailReasonNew.NotInTankSelect: statusText.text = "Not in tank select."; break;
             case TankDraftFailReasonNew.InvalidTankId: statusText.text = "Invalid tank."; break;
-            case TankDraftFailReasonNew.TankTakenByTeam: statusText.text = "Tank locked by your team already."; break;
+            case TankDraftFailReasonNew.TankTakenByTeam: statusText.text = "Tank is taken by your team."; break;
             case TankDraftFailReasonNew.AlreadyLocked: statusText.text = "You already locked."; break;
             default: statusText.text = "Lock failed."; break;
         }
@@ -254,6 +218,11 @@ public class TankSelectUINew : MonoBehaviour
 
     private void ClearStatus()
     {
+        // don’t clear if we are locked
+        if (draft == null || NetworkManager.Singleton == null) return;
+        ulong localId = NetworkManager.Singleton.LocalClientId;
+        if (draft.TryGetPick(localId, out var me) && me.Locked) return;
+
         if (statusText != null) statusText.text = "";
     }
 }

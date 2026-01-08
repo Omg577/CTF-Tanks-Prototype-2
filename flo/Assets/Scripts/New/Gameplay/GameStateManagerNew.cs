@@ -9,12 +9,8 @@ public class GameStateManagerNew : NetworkBehaviour
     [SerializeField] private int winningCaptures = 3;
     [SerializeField] private float matchLengthSeconds = 8 * 60f;
 
-    [Header("Tank Select")]
-    [Tooltip("How long the tank selection phase lasts (10-20 recommended).")]
-    [Range(10f, 20f)]
+    [Header("Phases")]
     [SerializeField] private float tankSelectSeconds = 15f;
-
-    [Header("Countdown / Game Over")]
     [SerializeField] private float countdownSeconds = 3f;
     [SerializeField] private float gameOverSeconds = 6f;
 
@@ -24,8 +20,8 @@ public class GameStateManagerNew : NetworkBehaviour
     [Header("References")]
     [SerializeField] private PayloadNew payloadTeamA;
     [SerializeField] private PayloadNew payloadTeamB;
-    [SerializeField] private VehicleSpawnerNew vehicleSpawner; // drag in inspector (recommended)
-    [SerializeField] private TankDraftManagerNew tankDraftManager; // drag in inspector (recommended)
+    [SerializeField] private VehicleSpawnerNew vehicleSpawner;
+    [SerializeField] private TankDraftManagerNew tankDraftManager;
 
     // Networked state
     private readonly NetworkVariable<byte> state = new(
@@ -68,12 +64,9 @@ public class GameStateManagerNew : NetworkBehaviour
     {
         if (!IsSpawned || !IsServer) return;
 
-        // Lazy-find spawner/draft manager if not assigned
-        if (vehicleSpawner == null)
-            vehicleSpawner = FindFirstObjectByType<VehicleSpawnerNew>();
-
-        if (tankDraftManager == null)
-            tankDraftManager = FindFirstObjectByType<TankDraftManagerNew>();
+        // Lazy find refs if not assigned
+        if (vehicleSpawner == null) vehicleSpawner = FindFirstObjectByType<VehicleSpawnerNew>();
+        if (tankDraftManager == null) tankDraftManager = FindFirstObjectByType<TankDraftManagerNew>();
 
         float now = (float)NetworkManager.ServerTime.Time;
 
@@ -87,8 +80,18 @@ public class GameStateManagerNew : NetworkBehaviour
                 break;
 
             case MatchStateNew.TankSelect:
+                // NEW: end early if everyone locked
+                if (tankDraftManager != null && tankDraftManager.ServerAllPlayersLocked())
+                {
+                    FinishTankSelectAndEnterCountdown();
+                    return;
+                }
+
                 if (now >= stateEndsAtServerTime.Value)
-                    FinalizeTankSelectAndEnterCountdown();
+                {
+                    FinishTankSelectAndEnterCountdown();
+                    return;
+                }
                 break;
 
             case MatchStateNew.Countdown:
@@ -150,34 +153,25 @@ public class GameStateManagerNew : NetworkBehaviour
     {
         float now = (float)NetworkManager.ServerTime.Time;
 
-        // Ensure objective state is “clean” while selecting
-        if (payloadTeamA != null) payloadTeamA.ServerReturnHome();
-        if (payloadTeamB != null) payloadTeamB.ServerReturnHome();
+        // Start a new round cycle here (clients can reset prediction / UI)
+        roundId.Value++;
 
-        // Start draft state (server authoritative)
+        // Prep draft list on server
         if (tankDraftManager != null)
             tankDraftManager.ServerBeginTankSelect(tankSelectSeconds);
 
         SetState(MatchStateNew.TankSelect, now + tankSelectSeconds);
     }
 
-    private void FinalizeTankSelectAndEnterCountdown()
-    {
-        // Apply picks: replace each client's vehicle prefab with selected tank
-        if (tankDraftManager != null && vehicleSpawner != null)
-            tankDraftManager.ServerApplyFinalPicks(vehicleSpawner);
-
-        EnterCountdown();
-    }
-
-    private void EnterCountdown()
+    private void FinishTankSelectAndEnterCountdown()
     {
         float now = (float)NetworkManager.ServerTime.Time;
 
-        // NEW ROUND starts here
-        roundId.Value++;
+        // Apply final tank picks (server swaps prefabs)
+        if (tankDraftManager != null && vehicleSpawner != null)
+            tankDraftManager.ServerApplyFinalPicks(vehicleSpawner);
 
-        // Reset scores + payloads
+        // Reset scores + payloads + teleport + heal for the actual match start
         if (ScoreManagerNew.Instance != null)
             ScoreManagerNew.Instance.ServerResetScores();
 
@@ -187,11 +181,9 @@ public class GameStateManagerNew : NetworkBehaviour
         if (payloadTeamA != null) payloadTeamA.ServerReturnHome();
         if (payloadTeamB != null) payloadTeamB.ServerReturnHome();
 
-        // Teleport all players back to spawns (server authoritative)
         if (vehicleSpawner != null)
             vehicleSpawner.ServerTeleportAllToSpawns();
 
-        // Heal + revive everyone for the new round
         if (RespawnManagerNew.Instance != null)
             RespawnManagerNew.Instance.ServerResetAllVehiclesForNewRound(invulnerabilitySeconds: 1.0f);
 
@@ -225,6 +217,14 @@ public class GameStateManagerNew : NetworkBehaviour
     }
 
     // Client/UI helpers
+    public float GetTankSelectRemaining()
+    {
+        if (!IsSpawned) return 0f;
+        if (State != MatchStateNew.TankSelect) return 0f;
+        float now = (float)NetworkManager.Singleton.ServerTime.Time;
+        return Mathf.Max(0f, stateEndsAtServerTime.Value - now);
+    }
+
     public float GetCountdownRemaining()
     {
         if (!IsSpawned) return 0f;
@@ -239,13 +239,5 @@ public class GameStateManagerNew : NetworkBehaviour
         if (State != MatchStateNew.InGame) return 0f;
         float now = (float)NetworkManager.Singleton.ServerTime.Time;
         return Mathf.Max(0f, matchEndsAtServerTime.Value - now);
-    }
-
-    public float GetTankSelectRemaining()
-    {
-        if (!IsSpawned) return 0f;
-        if (State != MatchStateNew.TankSelect) return 0f;
-        float now = (float)NetworkManager.Singleton.ServerTime.Time;
-        return Mathf.Max(0f, stateEndsAtServerTime.Value - now);
     }
 }

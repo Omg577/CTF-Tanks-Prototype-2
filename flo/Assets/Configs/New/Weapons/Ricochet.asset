@@ -49,6 +49,7 @@ MonoBehaviour:
   isExplosive: 0
   splashRadius: 4
   splashEdgeMultiplier: 0.35
+  blockedSplashMultiplier: 0.15
   isRicochet: 1
   maxBounces: 3
   bounceSpeedMultiplier: 0.85
@@ -58,3 +59,6 @@ MonoBehaviour:
   vehicleMask:
     serializedVersion: 2
     m_Bits: 64
+  muzzleFlashPrefab: {fileID: 8240423218298244372, guid: 7f1610678abafa042962cd43a2269d00, type: 3}
+  muzzleFlashLocalOffset: {x: 0, y: 0, z: -1}
+  muzzleFlashDestroySeconds: 0.75

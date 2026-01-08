@@ -306,4 +306,21 @@ public class TankDraftManagerNew : NetworkBehaviour
     {
         OnClientDraftFail?.Invoke(reason);
     }
+
+    public bool ServerAllPlayersLocked()
+    {
+        if (!IsServer) return false;
+        if (!IsSpawned) return false;
+
+        // If no picks yet, don't early-end
+        if (Picks == null || Picks.Count == 0) return false;
+
+        for (int i = 0; i < Picks.Count; i++)
+        {
+            if (!Picks[i].Locked)
+                return false;
+        }
+        return true;
+    }
+
 }

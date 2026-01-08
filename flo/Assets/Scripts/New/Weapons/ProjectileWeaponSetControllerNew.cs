@@ -143,16 +143,10 @@ public class ProjectileWeaponSetControllerNew : NetworkBehaviour
         if (blockWhileDead && health != null && health.IsDead)
             return;
 
-        // Optional: block while invulnerable if your health exposes it.
-        // If your VehicleHealthNew doesn't have a public property, set blockWhileInvulnerable=false.
+        // Optional: block while invulnerable (left as future hook)
         if (blockWhileInvulnerable && health != null)
         {
-            // Look for a public bool property named IsInvulnerable or IsSpawnProtected.
-            // (No reflection here—just common patterns. Add one if you want this.)
-#if UNITY_EDITOR
-            // You can safely ignore this in builds; kept simple.
-#endif
-            // If you want this fully wired, tell me your exact property name and I'll lock it in.
+            // wire this if you expose a property on VehicleHealthNew
         }
 
         // Server-side cooldown per weapon
@@ -168,10 +162,17 @@ public class ProjectileWeaponSetControllerNew : NetworkBehaviour
 
         Vector3 origin = (muzzle != null) ? muzzle.position : transform.position;
 
+        // Yaw-only direction for top-down
         Vector3 dir = (muzzle != null) ? muzzle.forward : transform.forward;
         dir.y = 0f;
         if (dir.sqrMagnitude < 0.0001f) return;
         dir.Normalize();
+
+        Quaternion shotRot = Quaternion.LookRotation(dir, Vector3.up);
+
+        // --- NEW: networked muzzle flash (cosmetic) ---
+        if (config.muzzleFlashPrefab != null)
+            PlayMuzzleFlashClientRpc(configIndex, origin, shotRot);
 
         Vector3 spawnPos = origin + dir * Mathf.Max(0f, config.spawnForwardOffset);
 
@@ -179,7 +180,7 @@ public class ProjectileWeaponSetControllerNew : NetworkBehaviour
         var tc = GetComponent<TeamComponentNew>();
         if (tc != null) team = tc.Team;
 
-        NetworkObject projNO = Instantiate(prefab, spawnPos, Quaternion.LookRotation(dir, Vector3.up));
+        NetworkObject projNO = Instantiate(prefab, spawnPos, shotRot);
         projNO.Spawn(true);
 
         // Ignore shooter collisions briefly (server)
@@ -192,6 +193,30 @@ public class ProjectileWeaponSetControllerNew : NetworkBehaviour
             Vector3 vel = dir * config.speed;
             proj.ServerInit(config, rpcParams.Receive.SenderClientId, NetworkObjectId, team, vel);
         }
+    }
+
+    // Runs on all clients so everyone sees muzzle flash
+    [Rpc(SendTo.ClientsAndHost, Delivery = RpcDelivery.Unreliable)]
+    private void PlayMuzzleFlashClientRpc(int configIndex, Vector3 muzzlePos, Quaternion shotRot)
+    {
+        if (!IsSpawned) return;
+        if (projectileConfigs == null) return;
+        if (configIndex < 0 || configIndex >= projectileConfigs.Length) return;
+
+        var config = projectileConfigs[configIndex];
+        if (config == null) return;
+
+        var prefab = config.muzzleFlashPrefab;
+        if (prefab == null) return;
+
+        Vector3 offsetWorld = shotRot * config.muzzleFlashLocalOffset;
+        Vector3 pos = muzzlePos + offsetWorld;
+
+        var vfx = Instantiate(prefab, pos, shotRot);
+
+        // fallback cleanup (if prefab doesn't self-destroy)
+        if (config.muzzleFlashDestroySeconds > 0f)
+            Destroy(vfx, config.muzzleFlashDestroySeconds);
     }
 
     private void RegisterInvalid(double now)
