@@ -11,7 +11,7 @@ GameObject:
   - component: {fileID: 2131140430115808638}
   - component: {fileID: 3015884162109361011}
   - component: {fileID: 5957346743646477054}
-  m_Layer: 0
+  m_Layer: 6
   m_Name: Weakspot Backspot
   m_TagString: Untagged
   m_Icon: {fileID: 0}
@@ -491,6 +491,12 @@ MonoBehaviour:
   maxExtrapolationTicks: 1
   extraExpSmoothing: 0
   remoteVisualLerpSpeed: 18
+  smoothOwnerVisual: 1
+  ownerVisualLerpSpeed: 35
+  smoothOwnerRoot: 1
+  ownerRootLerpSpeed: 20
+  smoothHostVisual: 1
+  hostVisualLerpSpeed: 18
 --- !u!114 &-7301793401019658691
 MonoBehaviour:
   m_ObjectHideFlags: 0

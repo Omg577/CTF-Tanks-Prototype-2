@@ -31,7 +31,7 @@ public class TopDownFollowCameraNew : MonoBehaviour
     public float lookAheadDistance = 1.25f;
 
     [Tooltip("Ignore tiny movement changes (prevents micro-wobble).")]
-    public float lookAheadDeadzoneSpeed = 1.25f;
+    public float lookAheadDeadzoneSpeed = 0.35f;
 
     [Tooltip("Max change speed of look-ahead per second (clamps the 'swing').")]
     public float lookAheadMaxDeltaPerSec = 6f;
@@ -39,44 +39,50 @@ public class TopDownFollowCameraNew : MonoBehaviour
     [Tooltip("How quickly look-ahead reacts (lower = steadier).")]
     public float lookAheadLerpSpeed = 5f;
 
-    [Tooltip("Use Rigidbody velocity for look-ahead.")]
-    public bool useVelocityLookAhead = true;
+    [Header("Velocity Source")]
+    [Tooltip("If true, velocity is computed from target position delta (stable for netcode).")]
+    public bool usePositionDeltaVelocity = true;
 
     private Vector3 _posVel;
     private Vector3 _lookAheadCurrent;
-    private Rigidbody _targetRb;
+
+    private Vector3 _lastTargetPos;
+    private bool _hasLastPos;
 
     private void LateUpdate()
     {
         if (target == null) return;
 
-        if (_targetRb == null)
-            _targetRb = target.GetComponent<Rigidbody>();
-
-        // Build desired camera rotation (fixed style)
+        // Camera style rotation
         Quaternion yawRot = Quaternion.Euler(0f, yawDegrees, 0f);
         Quaternion tiltRot = Quaternion.Euler(tiltDegrees, 0f, 0f);
         Quaternion camRot = yawRot * tiltRot;
 
-        // --- Compute planar velocity ---
+        // --- Compute planar velocity from position delta (stable) ---
         Vector3 planarVel = Vector3.zero;
-        if (useVelocityLookAhead && _targetRb != null)
+        if (usePositionDeltaVelocity)
         {
-            planarVel = _targetRb.linearVelocity;
-            planarVel.y = 0f;
+            if (!_hasLastPos)
+            {
+                _lastTargetPos = target.position;
+                _hasLastPos = true;
+            }
+
+            float dt = Mathf.Max(1e-5f, Time.deltaTime);
+            Vector3 v = (target.position - _lastTargetPos) / dt;
+            _lastTargetPos = target.position;
+
+            v.y = 0f;
+            planarVel = v;
         }
 
         float speed = planarVel.magnitude;
 
-        // --- Look-ahead (deadzone + clamp) ---
+        // --- Look-ahead ---
         Vector3 desiredLookAhead = Vector3.zero;
-
         if (enableLookAhead && speed >= lookAheadDeadzoneSpeed)
-        {
             desiredLookAhead = planarVel.normalized * lookAheadDistance;
-        }
 
-        // Smooth look-ahead but cap per-frame delta to avoid "drunk swing"
         float tLA = 1f - Mathf.Exp(-lookAheadLerpSpeed * Time.deltaTime);
         Vector3 nextLookAhead = Vector3.Lerp(_lookAheadCurrent, desiredLookAhead, tLA);
 
@@ -95,11 +101,11 @@ public class TopDownFollowCameraNew : MonoBehaviour
             - (camRot * Vector3.forward) * distance
             + Vector3.up * height;
 
-        // --- Adaptive follow smoothing ---
+        // Adaptive follow smoothing
         float smoothTime = (speed >= idleSpeedThreshold) ? smoothTimeMoving : smoothTimeIdle;
         transform.position = Vector3.SmoothDamp(transform.position, desiredPos, ref _posVel, smoothTime);
 
-        // --- Rotation (look at focus point) ---
+        // Rotation (look at focus)
         Quaternion desiredRot = Quaternion.LookRotation((focusPoint - transform.position).normalized, Vector3.up);
         float tRot = 1f - Mathf.Exp(-rotationLerpSpeed * Time.deltaTime);
         transform.rotation = Quaternion.Slerp(transform.rotation, desiredRot, tRot);

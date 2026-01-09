@@ -12,8 +12,19 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: b6e6477f7b821464fbaea20c28af442e, type: 3}
   m_Name: TankSpinMovementConfigNew FAST
   m_EditorClassIdentifier: Assembly-CSharp::TankSpinMovementConfigNew
-  maxSpeed: 6
+  maxSpeed: 400
   accel: 30
   decel: 35
   maxTurnSpeedDeg: 180
   turnAccelDeg: 3500
+  gravity: -25
+  rideHeight: 0.6
+  probeDistance: 0.6
+  probeRadius: 0.35
+  maxSlopeAngle: 55
+  groundMask:
+    serializedVersion: 2
+    m_Bits: 55
+  groundHeightSharpness: 25
+  groundedEpsilon: 0.25
+  maxGroundAdjustPerSecond: 20
