@@ -260,8 +260,11 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 54e097377327d7143b7c183e8c9c28cd, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::LocalPlayerCameraBinderNew
-  followCam: {fileID: 330585548}
+  followCam: {fileID: 0}
   repollInterval: 0.25
+  preferCameraTargetChild: 1
+  preferVisualChild: 1
+  forceSnapOnBind: 1
 --- !u!4 &64052987
 Transform:
   m_ObjectHideFlags: 0
@@ -989,6 +992,7 @@ GameObject:
   - component: {fileID: 330585544}
   - component: {fileID: 330585547}
   - component: {fileID: 330585548}
+  - component: {fileID: 330585549}
   m_Layer: 0
   m_Name: Main Camera
   m_TagString: MainCamera
@@ -1037,7 +1041,7 @@ Camera:
     height: 1
   near clip plane: 0.3
   far clip plane: 1000
-  field of view: 60
+  field of view: 13
   orthographic: 0
   orthographic size: 5
   m_Depth: -1
@@ -1121,7 +1125,7 @@ MonoBehaviour:
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 330585543}
-  m_Enabled: 1
+  m_Enabled: 0
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: 0ece0aaba7de871408a2c5086c626759, type: 3}
   m_Name: 
@@ -1129,7 +1133,7 @@ MonoBehaviour:
   target: {fileID: 0}
   height: 16
   distance: 12
-  tiltDegrees: 58
+  tiltDegrees: 60
   yawDegrees: 45
   smoothTimeMoving: 0.06
   smoothTimeIdle: 0.14
@@ -1140,7 +1144,36 @@ MonoBehaviour:
   lookAheadDeadzoneSpeed: 1.25
   lookAheadMaxDeltaPerSec: 6
   lookAheadLerpSpeed: 8
-  useVelocityLookAhead: 1
+  usePositionDeltaVelocity: 1
+--- !u!114 &330585549
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 330585543}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 80687e591e878844b8a231808e4279ad, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::CameraFollowNew
+  target: {fileID: 0}
+  offset: {x: 0, y: 85, z: -48}
+  cameraAngle: 55
+  yawDegrees: 0
+  deadZone: {x: 1.2, y: 1.2}
+  smoothTimeMoving: 0.08
+  smoothTimeIdle: 0.16
+  idleSpeedThreshold: 0.25
+  dynamicResponsiveness: 1
+  speedMultiplier: 0.06
+  minResponsivenessBoost: 0
+  minBounds: {x: 0, y: 0}
+  maxBounds: {x: 0, y: 0}
+  useBounds: 0
+  freezeZones: []
+  forceSnapDuration: 0.35
+  forceSnapLerpSpeed: 40
 --- !u!1 &368884059
 GameObject:
   m_ObjectHideFlags: 0
